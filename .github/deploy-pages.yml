@@ -1,0 +1,70 @@
+name: Deploy frontend to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Determine GitHub Pages base path
+        id: pages-path
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repository="${GITHUB_REPOSITORY##*/}"
+          if [[ "$repository" == "$owner.github.io" ]]; then
+            echo "base_url=" >> "$GITHUB_OUTPUT"
+          else
+            echo "base_url=/$repository" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Export frontend
+        env:
+          EXPO_PUBLIC_API_URL: https://docker-app-spending-tracker.tailde68a.ts.net
+          EXPO_PUBLIC_BASE_URL: ${{ steps.pages-path.outputs.base_url }}
+        run: pnpm --filter @spending-tracker/mobile-web exec expo export --platform web
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: apps/mobile-web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
