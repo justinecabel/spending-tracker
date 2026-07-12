@@ -16,7 +16,7 @@ export function useOfflineStatus() {
 
     if ("serviceWorker" in navigator && window.isSecureContext) {
       navigator.serviceWorker
-        .register("sw.js", { scope: "./" })
+        .register("/sw.js", { scope: "/" })
         .then(() => setHasCachedShell(true))
         .catch(() => setHasCachedShell(false));
     }

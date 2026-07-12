@@ -10,13 +10,10 @@ const config: ExpoConfig = {
   userInterfaceStyle: "light",
   experiments: {
     typedRoutes: true,
-    // GitHub Pages serves project sites below /<repository-name>. The workflow
-    // provides this value at export time; local development stays at the root.
-    baseUrl: process.env.EXPO_PUBLIC_BASE_URL ?? "",
   },
   web: {
     bundler: "metro",
-    favicon: "./public/icon-192.png",
+    favicon: "./public/spend-icon.svg",
   },
   extra: {
     eas: {
