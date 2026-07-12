@@ -15,8 +15,9 @@ import { appShellStore } from "../../src/state/app-shell";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { nanoid } from "nanoid/non-secure";
-import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Modal, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { theme } from "../../src/theme";
+import { WebPressable as Pressable } from "../../src/components/web-pressable";
 
 export default function DashboardScreen() {
   const user = sessionStore((state) => state.user);

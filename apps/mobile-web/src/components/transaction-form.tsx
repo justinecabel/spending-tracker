@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import type { Category, CreateTransactionInput } from "@spending-tracker/shared";
 import { combineDateAndTime, toDateInputValue, toTimeInputValue } from "../lib/date";
 import { theme } from "../theme";
+import { WebPressable as Pressable } from "./web-pressable";
 
 function normalizeAmountInput(value: string) {
   const cleaned = value.replace(/[^\d.]/g, "");

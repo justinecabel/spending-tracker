@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import type { AuthResponse } from "@spending-tracker/shared";
 import { api } from "../lib/api";
 import type { StoredProfileSession } from "../state/session";
 import { sessionStore } from "../state/session";
 import { theme } from "../theme";
+import { WebPressable as Pressable } from "./web-pressable";
 import { PillButton, SectionTitle } from "./ui";
 
 export function TransferOutPanel() {

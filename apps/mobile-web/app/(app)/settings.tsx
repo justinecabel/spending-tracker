@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { InstallPanel } from "../../src/components/install-panel";
 import { ScreenContainer } from "../../src/components/layout";
@@ -10,6 +10,7 @@ import { appearanceStore } from "../../src/state/appearance";
 import { summaryRangeStore, type SummaryRangeMode } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
 import { theme } from "../../src/theme";
+import { WebPressable as Pressable } from "../../src/components/web-pressable";
 
 const rangeModes: Array<{ key: SummaryRangeMode; label: string }> = [
   { key: "this-month", label: "This month" },

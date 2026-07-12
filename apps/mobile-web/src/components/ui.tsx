@@ -1,6 +1,7 @@
 import { PropsWithChildren } from "react";
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { theme } from "../theme";
+import { WebPressable as Pressable } from "./web-pressable";
 
 export function Card({ children, style }: PropsWithChildren<{ style?: object }>) {
   const { width } = useWindowDimensions();

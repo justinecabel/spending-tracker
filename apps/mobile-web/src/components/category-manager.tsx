@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Category } from "@spending-tracker/shared";
 import { PillButton } from "./ui";
 import { theme } from "../theme";
+import { WebPressable as Pressable } from "./web-pressable";
 
 const COLOR_OPTIONS = ["#16A34A", "#2563EB", "#D97706", "#DC2626", "#7C3AED", "#0891B2", "#F59E0B", "#4B5563"];
 

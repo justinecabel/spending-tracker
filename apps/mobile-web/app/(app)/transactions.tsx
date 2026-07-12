@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import type { Transaction } from "@spending-tracker/shared";
 import { Card, PageHeader, PillButton } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
@@ -19,6 +19,7 @@ import { sessionStore } from "../../src/state/session";
 import { summaryRangeStore } from "../../src/state/summary-range";
 import { resolveSummaryRange } from "../../src/lib/summary-range";
 import { theme } from "../../src/theme";
+import { WebPressable as Pressable } from "../../src/components/web-pressable";
 
 function normalizeAmountInput(value: string) {
   const cleaned = value.replace(/[^\d.]/g, "");

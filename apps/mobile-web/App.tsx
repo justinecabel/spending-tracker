@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Platform, Pressable, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from "react-native";
+import { Platform, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from "react-native";
 import DashboardScreen from "./app/(app)/index";
 import ReportsScreen from "./app/(app)/reports";
 import SettingsScreen from "./app/(app)/settings";
@@ -12,6 +12,7 @@ import { useOfflineStatus } from "./src/hooks/use-offline-status";
 import { PwaInstallContext, usePwaInstall } from "./src/hooks/use-pwa-install";
 import { useSyncQueue } from "./src/hooks/use-sync";
 import { Providers } from "./src/providers";
+import { WebPressable as Pressable } from "./src/components/web-pressable";
 import { appShellStore, normalizeTabKey, type TabKey } from "./src/state/app-shell";
 import { appearanceStore } from "./src/state/appearance";
 import { sessionStore } from "./src/state/session";

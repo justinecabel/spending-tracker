@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from "react-native-svg";
 import type { MonthlyReport, Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
@@ -14,6 +14,7 @@ import { EMPTY_CATEGORIES, EMPTY_TRANSACTIONS, offlineCacheStore, transactionSco
 import { summaryRangeStore } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
 import { theme } from "../../src/theme";
+import { WebPressable as Pressable } from "../../src/components/web-pressable";
 
 type SelectedStat = {
   label: string;
