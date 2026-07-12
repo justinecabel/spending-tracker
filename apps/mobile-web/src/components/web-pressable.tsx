@@ -1,24 +1,29 @@
 import type { ComponentProps } from "react";
-import { Platform, Pressable as NativePressable } from "react-native";
+import { Platform, Pressable as NativePressable, View } from "react-native";
 
 type WebPressableProps = ComponentProps<typeof NativePressable>;
 
 /**
  * React Native Web's Pressability layer can drop `onPress` handlers in an
- * exported static bundle. Use React's direct web click handler for the web
- * build while preserving the native `onPress` behavior for other platforms.
+ * exported static bundle. Render a plain View with React's direct click
+ * handler on web while preserving native `onPress` behavior elsewhere.
  */
 export function WebPressable({ onPress, accessibilityRole, ...props }: WebPressableProps) {
-  const interactionProps =
-    Platform.OS === "web"
-      ? ({ onClick: onPress } as Record<string, unknown>)
-      : { onPress };
+  if (Platform.OS === "web") {
+    return (
+      <View
+        {...(props as ComponentProps<typeof View>)}
+        {...({ onClick: onPress } as Record<string, unknown>)}
+        accessibilityRole={accessibilityRole ?? "button"}
+      />
+    );
+  }
 
   return (
     <NativePressable
       {...props}
-      {...interactionProps}
       accessibilityRole={accessibilityRole ?? "button"}
+      onPress={onPress}
     />
   );
 }
