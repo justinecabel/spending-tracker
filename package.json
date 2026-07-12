@@ -1,0 +1,18 @@
+{
+  "name": "spending-tracker",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @spending-tracker/shared --filter @spending-tracker/api --filter @spending-tracker/mobile-web dev",
+    "dev:api": "pnpm --filter @spending-tracker/api dev",
+    "dev:app": "pnpm --filter @spending-tracker/mobile-web dev",
+    "dev:funnel-proxy": "node scripts/funnel-proxy.mjs",
+    "start:api": "pnpm --filter @spending-tracker/api start",
+    "docker:api": "docker compose up --build",
+    "docker:api:down": "docker compose down",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

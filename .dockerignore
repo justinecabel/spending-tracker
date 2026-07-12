@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.expo
+.turbo
+*.log
+apps/api/data
+docker-data
+.env
+.env.*

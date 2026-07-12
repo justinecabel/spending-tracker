@@ -1,0 +1,15 @@
+node_modules
+.pnpm-store
+dist
+coverage
+.expo
+.turbo
+.DS_Store
+*.log
+apps/api/data
+apps/mobile-web/.expo
+apps/mobile-web/dist
+docker-data/
+.env
+.env.*
+!.env.example

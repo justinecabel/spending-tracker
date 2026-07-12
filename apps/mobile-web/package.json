@@ -1,0 +1,33 @@
+{
+  "name": "@spending-tracker/mobile-web",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "dev": "expo start",
+    "web": "expo start --web",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@babel/runtime": "^8.0.0",
+    "@expo/metro-runtime": "~3.2.3",
+    "@react-native/assets-registry": "0.86.0",
+    "@spending-tracker/shared": "workspace:*",
+    "@tanstack/react-query": "^5.59.16",
+    "expo": "~51.0.39",
+    "nanoid": "^5.0.8",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-svg": "15.2.0",
+    "react-native-web": "~0.19.13",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "~18.2.79",
+    "babel-preset-expo": "^11.0.15",
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.8"
+  }
+}
