@@ -105,7 +105,7 @@ function ensureManifest() {
   const link = document.createElement("link");
   link.id = manifestId;
   link.rel = "manifest";
-  link.href = new URL("manifest.webmanifest?v=6", document.baseURI).toString();
+  link.href = new URL("manifest.webmanifest?v=7", document.baseURI).toString();
   document.head.appendChild(link);
 }
 

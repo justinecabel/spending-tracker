@@ -1,9 +1,14 @@
-const CACHE_NAME = "spending-tracker-shell-v6";
-const APP_SHELL = ["./", "./manifest.webmanifest?v=6", "./icon-192.png", "./icon-512.png"];
+const CACHE_NAME = "spending-tracker-shell-v7";
+const APP_SHELL = ["./", "./offline.html", "./manifest.webmanifest?v=7", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
-  self.skipWaiting();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -31,7 +36,7 @@ self.addEventListener("fetch", (event) => {
           void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           return response;
         })
-        .catch(async () => (await caches.match(request)) || (await caches.match("./"))),
+        .catch(async () => (await caches.match(request)) || (await caches.match("./offline.html")) || (await caches.match("./"))),
     );
     return;
   }

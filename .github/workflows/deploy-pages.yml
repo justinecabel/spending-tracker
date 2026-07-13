@@ -53,6 +53,11 @@ jobs:
           EXPO_PUBLIC_BASE_URL: ${{ steps.pages-path.outputs.base_url }}
         run: pnpm --filter @spending-tracker/mobile-web exec expo export --platform web
 
+      - name: Add GitHub Pages route fallback
+        env:
+          EXPO_PUBLIC_BASE_URL: ${{ steps.pages-path.outputs.base_url }}
+        run: node scripts/create-pages-404.mjs
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:

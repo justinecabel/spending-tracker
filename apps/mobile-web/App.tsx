@@ -62,7 +62,7 @@ function AppShell() {
   const historyReady = useRef(false);
   const isWeb = Platform.OS === "web" && typeof window !== "undefined";
   const activeTab = normalizeTabKey(tab);
-  const { isOnline } = useOfflineStatus();
+  const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus();
 
   useBootstrapSession();
   useSyncQueue(Boolean(accessToken));
@@ -217,13 +217,20 @@ function AppShell() {
             </Pressable>
           ))}
         </View>
-        {!isOnline || pendingSyncCount > 0 ? (
+        {updateAvailable || !isOnline || pendingSyncCount > 0 ? (
           <View style={[styles.syncBanner, { backgroundColor: isOnline ? palette.accentSoft : palette.field, borderTopColor: palette.border }]}>
-            <Text style={[styles.syncBannerText, { color: isOnline ? palette.accent : palette.warning }]}>
-              {isOnline
+            <Text style={[styles.syncBannerText, styles.syncBannerMessage, { color: isOnline ? palette.accent : palette.warning }]}>
+              {updateAvailable
+                ? "A new version is ready. Reload to update the app."
+                : isOnline
                 ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} waiting to sync`
                 : `${pendingSyncCount ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} saved locally · ` : ""}Offline mode — showing saved data`}
             </Text>
+            {updateAvailable ? (
+              <Pressable style={styles.updateButton} onPress={applyUpdate}>
+                <Text style={styles.updateButtonText}>Reload</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -281,12 +288,29 @@ const styles = StyleSheet.create({
   },
   syncBanner: {
     borderTopWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
   syncBannerText: {
     fontSize: 13,
     fontWeight: "700",
+  },
+  syncBannerMessage: {
+    flex: 1,
+  },
+  updateButton: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  updateButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
   },
   tab: {
     paddingHorizontal: 14,
