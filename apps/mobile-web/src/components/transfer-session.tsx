@@ -305,12 +305,15 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalCard: {
+    alignSelf: "center",
     backgroundColor: theme.colors.card,
     borderRadius: theme.radius.lg,
     padding: 20,
     gap: 14,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    maxWidth: 460,
+    width: "100%",
     ...theme.shadow,
   },
   modalTitle: {
