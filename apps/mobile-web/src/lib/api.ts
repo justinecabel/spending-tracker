@@ -18,10 +18,10 @@ import type {
 import { ensureDeviceId, getLocalDeviceLabel } from "./device";
 import { sessionStore } from "../state/session";
 
-const publicApiUrl =
-  typeof process !== "undefined" && typeof process.env?.EXPO_PUBLIC_API_URL === "string"
-    ? process.env.EXPO_PUBLIC_API_URL
-    : undefined;
+// Expo replaces direct EXPO_PUBLIC_* references while building the web bundle.
+// Do not wrap this in a runtime `process` check: static hosts such as GitHub
+// Pages have no process environment after the bundle is loaded.
+const publicApiUrl = process.env.EXPO_PUBLIC_API_URL;
 export const apiUrl = String(
   publicApiUrl ??
     (typeof window !== "undefined"
