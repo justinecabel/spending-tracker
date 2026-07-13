@@ -96,7 +96,7 @@ export function usePwaInstall() {
 
 function ensureManifest() {
   const manifestId = "spending-tracker-manifest";
-  const iconUrl = "/spend-icon.svg?v=3";
+  const iconUrl = new URL("spend-icon.svg?v=6", document.baseURI).toString();
   ensureAppIcons(iconUrl);
   if (document.getElementById(manifestId)) {
     return;
@@ -105,7 +105,7 @@ function ensureManifest() {
   const link = document.createElement("link");
   link.id = manifestId;
   link.rel = "manifest";
-  link.href = "/manifest.webmanifest?v=5";
+  link.href = new URL("manifest.webmanifest?v=6", document.baseURI).toString();
   document.head.appendChild(link);
 }
 
