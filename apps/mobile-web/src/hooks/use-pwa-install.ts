@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { darkPalette, lightPalette } from "../theme";
+import { capturePwaStorageHandoff, requestPersistentStorage } from "../lib/storage";
 
 type InstallChoice = {
   outcome: "accepted" | "dismissed";
@@ -45,10 +46,14 @@ export function usePwaInstall() {
 
     ensureManifest();
     ensureMetaTags();
+    capturePwaStorageHandoff();
+    void requestPersistentStorage();
     const displayMode = window.matchMedia?.("(display-mode: standalone)");
     setIsInstalled(Boolean(displayMode?.matches || window.navigator.standalone));
 
     const onInstalled = () => {
+      capturePwaStorageHandoff();
+      void requestPersistentStorage();
       setIsInstalled(true);
       setInstallPrompt(null);
     };
@@ -78,6 +83,9 @@ export function usePwaInstall() {
       return false;
     }
 
+    // Capture the current signed-in session, device ID, saved profiles, and
+    // other app data immediately before the browser creates the PWA window.
+    capturePwaStorageHandoff();
     await installPrompt.prompt();
     const result = await installPrompt.userChoice;
     if (result.outcome === "accepted") {
@@ -105,7 +113,7 @@ function ensureManifest() {
   const link = document.createElement("link");
   link.id = manifestId;
   link.rel = "manifest";
-  link.href = new URL("manifest.webmanifest?v=7", document.baseURI).toString();
+  link.href = new URL("manifest.webmanifest?v=8", document.baseURI).toString();
   document.head.appendChild(link);
 }
 

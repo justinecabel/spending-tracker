@@ -3,7 +3,7 @@
   "short_name": "Spend",
   "description": "Manual spending tracker with budgets, reports, and transfer sync.",
   "lang": "en",
-  "id": "./",
+  "id": "spending-tracker",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
