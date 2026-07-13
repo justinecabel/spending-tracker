@@ -12,6 +12,7 @@
     "start:api": "pnpm --filter @spending-tracker/api start",
     "docker:api": "docker compose up --build",
     "docker:api:down": "docker compose down",
+    "db:adopt-local-to-docker": "node scripts/adopt-local-db.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   }

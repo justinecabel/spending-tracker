@@ -45,6 +45,8 @@ export default function ReportsScreen() {
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]) ?? EMPTY_CATEGORIES;
   const transactionCacheId = transactionScopeKey(userId, `reports:${range.key}`);
   const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]) ?? EMPTY_TRANSACTIONS;
+  const predictionHistoryCacheId = transactionScopeKey(userId, "prediction-history");
+  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]) ?? EMPTY_TRANSACTIONS;
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "reports", range.key],
     queryFn: async () => {
@@ -78,6 +80,21 @@ export default function ReportsScreen() {
       }
     },
   });
+  const predictionHistoryQuery = useQuery({
+    queryKey: ["transactions", userId, "prediction-history"],
+    queryFn: async () => {
+      try {
+        const transactions = await api.transactions();
+        offlineCacheStore.getState().setTransactions(predictionHistoryCacheId, transactions);
+        return transactions;
+      } catch (error) {
+        if (cachedPredictionHistory.length > 0) {
+          return cachedPredictionHistory;
+        }
+        throw error;
+      }
+    },
+  });
   const offlineDrafts = drafts.filter((transaction) => {
     if (transaction.userId !== userId) {
       return false;
@@ -93,10 +110,14 @@ export default function ReportsScreen() {
   const transactions = [...offlineDrafts, ...(transactionsQuery.data ?? [])].sort(
     (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
   );
+  const predictionHistory = [
+    ...drafts.filter((transaction) => transaction.userId === userId),
+    ...(predictionHistoryQuery.data ?? cachedPredictionHistory),
+  ];
   const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories);
   const analytics = useMemo(
-    () => buildAdvancedAnalytics(report, transactions, range),
-    [report, range, transactions],
+    () => buildAdvancedAnalytics(report, transactions, predictionHistory, range),
+    [predictionHistory, report, range, transactions],
   );
   const isPayCycle = range.title === "Current pay cycle";
   const isAllTime = range.title === "All time";
@@ -437,7 +458,12 @@ function ForecastPointTooltip({
   );
 }
 
-function buildAdvancedAnalytics(report: MonthlyReport | undefined, transactions: Transaction[], range: ResolvedSummaryRange) {
+function buildAdvancedAnalytics(
+  report: MonthlyReport | undefined,
+  transactions: Transaction[],
+  predictionHistory: Transaction[],
+  range: ResolvedSummaryRange,
+) {
   const monthTransactions = [...transactions].sort(
     (left, right) => new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime(),
   );
@@ -477,9 +503,12 @@ function buildAdvancedAnalytics(report: MonthlyReport | undefined, transactions:
     const date = new Date(transaction.occurredAt);
     const weekday = date.getDay();
     const hour = date.getHours();
-    const bucket = transaction.occurredAt.slice(0, 7);
     weekdayTotals.set(weekday, (weekdayTotals.get(weekday) ?? 0) + transaction.amount);
     hourTotals.set(hour, (hourTotals.get(hour) ?? 0) + transaction.amount);
+  }
+
+  for (const transaction of predictionHistory) {
+    const bucket = transaction.occurredAt.slice(0, 7);
     monthTotals.set(bucket, (monthTotals.get(bucket) ?? 0) + transaction.amount);
   }
 
@@ -498,7 +527,7 @@ function buildAdvancedAnalytics(report: MonthlyReport | undefined, transactions:
   const elapsedDays = Math.max(1, Math.min(totalDays, Math.ceil((Math.min(now.getTime(), new Date(observedEnd).getTime()) - monthDate.getTime()) / 86400000) + 1));
   const historyStart = new Date(monthDate);
   historyStart.setDate(historyStart.getDate() - 90);
-  const historicalSpend = transactions.reduce((total, transaction) => {
+  const historicalSpend = predictionHistory.reduce((total, transaction) => {
     const occurredAt = new Date(transaction.occurredAt);
     return occurredAt >= historyStart && occurredAt < monthDate ? total + transaction.amount : total;
   }, 0);

@@ -42,6 +42,8 @@ export default function DashboardScreen() {
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]) ?? EMPTY_CATEGORIES;
   const transactionCacheId = transactionScopeKey(userId, `summary:${range.key}`);
   const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]) ?? EMPTY_TRANSACTIONS;
+  const predictionHistoryCacheId = transactionScopeKey(userId, "prediction-history");
+  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]) ?? EMPTY_TRANSACTIONS;
 
   const categoriesQuery = useQuery({
     queryKey: ["categories", userId],
@@ -72,6 +74,22 @@ export default function DashboardScreen() {
       } catch (error) {
         if (cachedTransactions.length > 0) {
           return cachedTransactions;
+        }
+        throw error;
+      }
+    },
+  });
+
+  const predictionHistoryQuery = useQuery({
+    queryKey: ["transactions", userId, "prediction-history"],
+    queryFn: async () => {
+      try {
+        const transactions = await api.transactions();
+        offlineCacheStore.getState().setTransactions(predictionHistoryCacheId, transactions);
+        return transactions;
+      } catch (error) {
+        if (cachedPredictionHistory.length > 0) {
+          return cachedPredictionHistory;
         }
         throw error;
       }
@@ -182,8 +200,12 @@ export default function DashboardScreen() {
   const transactions = [...offlineDrafts, ...(transactionsQuery.data ?? [])].sort(
     (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
   );
+  const predictionHistory = [
+    ...drafts.filter((transaction) => transaction.userId === userId),
+    ...(predictionHistoryQuery.data ?? cachedPredictionHistory),
+  ];
   const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories);
-  const projectedPeriodEnd = estimateForecast(transactions, range);
+  const projectedPeriodEnd = estimateForecast(transactions, predictionHistory, range);
   const stacked = width < 820;
   const compact = width < 640;
 
@@ -363,7 +385,11 @@ export default function DashboardScreen() {
   );
 }
 
-function estimateForecast(transactions: Transaction[], range: ReturnType<typeof resolveSummaryRange>) {
+function estimateForecast(
+  transactions: Transaction[],
+  predictionHistory: Transaction[],
+  range: ReturnType<typeof resolveSummaryRange>,
+) {
   const latestMonth = transactions.reduce(
     (latest, transaction) => (transaction.occurredAt.slice(0, 7) > latest ? transaction.occurredAt.slice(0, 7) : latest),
     new Date().toISOString().slice(0, 7),
@@ -380,7 +406,7 @@ function estimateForecast(transactions: Transaction[], range: ReturnType<typeof 
   }, 0);
   const historyStart = new Date(periodStart);
   historyStart.setDate(historyStart.getDate() - 90);
-  const historicalSpend = transactions.reduce((total, transaction) => {
+  const historicalSpend = predictionHistory.reduce((total, transaction) => {
     const occurredAt = new Date(transaction.occurredAt);
     return occurredAt >= historyStart && occurredAt < periodStart ? total + transaction.amount : total;
   }, 0);

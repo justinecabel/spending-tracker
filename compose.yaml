@@ -31,6 +31,9 @@ services:
       NODE_ENV: production
       PORT: "4000"
       DB_PATH: /app/data/spending-tracker.sqlite
+      EMPTY_ACCOUNT_GRACE_HOURS: ${EMPTY_ACCOUNT_GRACE_HOURS:-12}
+      INACTIVE_ACCOUNT_RETENTION_MONTHS: ${INACTIVE_ACCOUNT_RETENTION_MONTHS:-12}
+      CLEANUP_INTERVAL_HOURS: ${CLEANUP_INTERVAL_HOURS:-12}
     volumes:
       - ./docker-data/database:/app/data
     depends_on:

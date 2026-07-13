@@ -1,6 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import { nanoid } from "nanoid";
+import type { DatabaseSync } from "node:sqlite";
 import {
   authResponseSchema,
   transferTokenResponseSchema,
@@ -12,7 +13,6 @@ import { config } from "./config";
 import { db } from "./db/client";
 
 const googleClient = new OAuth2Client(config.googleClientId || undefined);
-const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
 const SYNC_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export async function verifyGoogleToken(idToken: string) {
@@ -278,25 +278,73 @@ export function verifyAccessToken(token: string) {
   return hydrateUser(user);
 }
 
-export function pruneStaleData() {
-  const now = Date.now();
-  const staleBefore = new Date(now - ONE_YEAR_MS).toISOString();
+export type CleanupOptions = {
+  database?: DatabaseSync;
+  now?: Date;
+  emptyAccountGraceHours?: number;
+  inactiveAccountRetentionMonths?: number;
+};
 
-  db.prepare("DELETE FROM refresh_tokens WHERE expires_at < ?").run(new Date(now).toISOString());
-  db.prepare("DELETE FROM transfer_tokens WHERE expires_at < ? OR used_at IS NOT NULL").run(new Date(now).toISOString());
+export function pruneStaleData(options: CleanupOptions = {}) {
+  const database = options.database ?? db;
+  const now = options.now ?? new Date();
+  const emptyAccountGraceHours = options.emptyAccountGraceHours ?? config.emptyAccountGraceHours;
+  const inactiveAccountRetentionMonths = options.inactiveAccountRetentionMonths ?? config.inactiveAccountRetentionMonths;
+  const emptyAccountBefore = new Date(now.getTime() - emptyAccountGraceHours * 60 * 60 * 1000).toISOString();
+  const inactiveAccountBefore = subtractCalendarMonths(now, inactiveAccountRetentionMonths).toISOString();
+  const nowIso = now.toISOString();
 
-  const staleUsers = db
-    .prepare("SELECT id FROM users WHERE last_seen_at < ?")
-    .all(staleBefore) as Array<{ id: string }>;
+  database.exec("BEGIN");
+  try {
+    database.prepare("DELETE FROM refresh_tokens WHERE expires_at < ?").run(nowIso);
+    database.prepare("DELETE FROM transfer_tokens WHERE expires_at < ? OR used_at IS NOT NULL").run(nowIso);
 
-  for (const { id } of staleUsers) {
-    db.prepare("DELETE FROM transactions WHERE user_id = ?").run(id);
-    db.prepare("DELETE FROM budgets WHERE user_id = ?").run(id);
-    db.prepare("DELETE FROM categories WHERE user_id = ?").run(id);
-    db.prepare("DELETE FROM refresh_tokens WHERE user_id = ?").run(id);
-    db.prepare("DELETE FROM transfer_tokens WHERE user_id = ?").run(id);
-    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    const staleUsers = database
+      .prepare(
+        `
+          SELECT id
+          FROM users
+          WHERE (
+            created_at <= @emptyAccountBefore
+            AND NOT EXISTS (
+              SELECT 1
+              FROM transactions
+              WHERE transactions.user_id = users.id AND transactions.deleted_at IS NULL
+            )
+          )
+          OR (
+            last_seen_at <= @inactiveAccountBefore
+            AND EXISTS (
+              SELECT 1
+              FROM transactions
+              WHERE transactions.user_id = users.id AND transactions.deleted_at IS NULL
+            )
+          )
+        `,
+      )
+      .all({ emptyAccountBefore, inactiveAccountBefore }) as Array<{ id: string }>;
+
+    for (const { id } of staleUsers) {
+      database.prepare("DELETE FROM transactions WHERE user_id = ?").run(id);
+      database.prepare("DELETE FROM budgets WHERE user_id = ?").run(id);
+      database.prepare("DELETE FROM categories WHERE user_id = ?").run(id);
+      database.prepare("DELETE FROM refresh_tokens WHERE user_id = ?").run(id);
+      database.prepare("DELETE FROM transfer_tokens WHERE user_id = ?").run(id);
+      database.prepare("DELETE FROM users WHERE id = ?").run(id);
+    }
+
+    database.exec("COMMIT");
+    return staleUsers.length;
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
   }
+}
+
+function subtractCalendarMonths(date: Date, months: number) {
+  const result = new Date(date);
+  result.setUTCMonth(result.getUTCMonth() - months);
+  return result;
 }
 
 function extractTransferToken(value: string) {
