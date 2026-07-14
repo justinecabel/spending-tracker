@@ -24,6 +24,15 @@ function isStandalonePwa() {
   );
 }
 
+function isSafariWebKit() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent;
+  return /AppleWebKit/i.test(userAgent) && !/Chrome|CriOS|EdgiOS|FxiOS|OPiOS/i.test(userAgent);
+}
+
 function readCurrentStorageHandoff(): PwaStorageHandoff {
   const data: Record<string, string> = {};
   for (let index = 0; index < window.localStorage.length; index += 1) {
@@ -219,7 +228,9 @@ export function preparePwaStorage() {
   }
 
   pwaStoragePrepared = (async () => {
-    installPwaHandoffResponder();
+    if (!isSafariWebKit()) {
+      installPwaHandoffResponder();
+    }
     if (!isStandalonePwa()) {
       return;
     }
@@ -233,8 +244,10 @@ export function preparePwaStorage() {
         applyStorageHandoff(JSON.parse(rawHandoff) as PwaStorageHandoff);
       }
 
-      const remoteHandoff = await requestPwaStorageHandoff();
-      applyStorageHandoff(remoteHandoff);
+      if (!isSafariWebKit()) {
+        const remoteHandoff = await requestPwaStorageHandoff();
+        applyStorageHandoff(remoteHandoff);
+      }
     } catch {
       // Storage or service-worker messaging can be unavailable in restricted webviews.
     }
