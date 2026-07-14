@@ -114,7 +114,9 @@ export default function ReportsScreen() {
     ...drafts.filter((transaction) => transaction.userId === userId),
     ...(predictionHistoryQuery.data ?? cachedPredictionHistory),
   ];
-  const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories);
+  // Fresh accounts have neither loaded nor cached categories during their
+  // first render. Reports should render an empty state until they arrive.
+  const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories ?? []);
   const analytics = useMemo(
     () => buildAdvancedAnalytics(report, transactions, predictionHistory, range),
     [predictionHistory, report, range, transactions],

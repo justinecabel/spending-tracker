@@ -349,7 +349,9 @@ export default function DashboardScreen() {
     ...drafts.filter((transaction) => transaction.userId === userId),
     ...(predictionHistoryQuery.data ?? cachedPredictionHistory),
   ];
-  const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories);
+  // A newly signed-in profile has no query result or offline cache yet. Keep
+  // the first render safe while the server creates/returns its categories.
+  const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories ?? []);
   const projectedPeriodEnd = estimateForecast(transactions, predictionHistory, range);
   const stacked = width < 820;
   const compact = width < 640;
