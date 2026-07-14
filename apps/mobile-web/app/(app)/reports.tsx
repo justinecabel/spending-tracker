@@ -302,9 +302,15 @@ function describeStat(label: string) {
 }
 
 function ForecastChart({ transactions, projected, currency, range }: { transactions: Transaction[]; projected: number; currency: string; range: ResolvedSummaryRange }) {
+  const { width } = useWindowDimensions();
   const { actualPoints, projectedPoints, currentPoint, spent, points } = buildForecastChart(transactions, projected, range);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
+  const [plotWidth, setPlotWidth] = useState(0);
   const selectedPoint = selectedPointIndex === null ? undefined : points[selectedPointIndex];
+  // A floating callout cannot reliably clear a data point in a narrow chart.
+  // Use a reserved row below the axes on phones so the marker always remains
+  // visible and the selected values stay readable.
+  const useDockedPointDetail = (plotWidth || width) <= 480;
   // Reserve enough room for both axis labels on narrow screens. The end
   // label yields before their text boxes can touch.
   const showEndAxisLabel = currentPoint.index < points.length - 1 && currentPoint.x < 400;
@@ -346,7 +352,10 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
           <Text style={styles.legendText}>Projected</Text>
         </View>
       </View>
-      <View style={styles.forecastPlot}>
+      <View
+        style={styles.forecastPlot}
+        onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}
+      >
         <Svg
           width="100%"
           height={158}
@@ -361,7 +370,7 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
           {selectedPoint && selectedPoint.actual === null ? <Circle cx={selectedPoint.x} cy={selectedPoint.projectedY} r="6" fill={theme.colors.warning} stroke={theme.colors.field} strokeWidth="2" /> : null}
           <Rect x="0" y="0" width="520" height="158" fill="transparent" {...chartInteractionProps} />
         </Svg>
-        {selectedPoint ? <ForecastPointTooltip point={selectedPoint} currency={currency} /> : null}
+        {selectedPoint && !useDockedPointDetail ? <ForecastPointTooltip point={selectedPoint} currency={currency} /> : null}
       </View>
       <View style={styles.forecastAxis}>
         {showStartAxisLabel ? <Text style={[styles.statSubvalue, styles.axisStart]}>Start</Text> : null}
@@ -370,6 +379,7 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
           <Text style={[styles.statSubvalue, styles.axisEnd]}>{range.title === "Current pay cycle" ? "Cycle end" : range.title === "All time" ? "Year end" : "Month end"}</Text>
         ) : null}
       </View>
+      {selectedPoint && useDockedPointDetail ? <ForecastPointDetail point={selectedPoint} currency={currency} /> : null}
     </View>
   );
 }
@@ -496,6 +506,21 @@ function ForecastPointTooltip({
     <View pointerEvents="none" style={[styles.pointTooltip, { left: `${(tooltipX / 520) * 100}%`, top: tooltipY }]}>
       <Text style={styles.pointTooltipLabel}>{point.label}</Text>
       <Text style={styles.pointTooltipValue}>{formatMoney(value, currency)}</Text>
+    </View>
+  );
+}
+
+function ForecastPointDetail({
+  point,
+  currency,
+}: {
+  point: { label: string; actual: number | null; projected: number };
+  currency: string;
+}) {
+  return (
+    <View style={styles.pointDetail}>
+      <Text style={styles.pointTooltipLabel}>{point.label}</Text>
+      <Text style={styles.pointTooltipValue}>{formatMoney(point.actual ?? point.projected, currency)}</Text>
     </View>
   );
 }
@@ -933,6 +958,12 @@ const styles = StyleSheet.create({
   forecastAxis: {
     height: 22,
     position: "relative",
+  },
+  pointDetail: {
+    alignSelf: "center",
+    alignItems: "center",
+    marginTop: 8,
+    minHeight: 38,
   },
   axisStart: {
     left: "4.6%",
