@@ -19,7 +19,7 @@ export function ScreenContainer({
 }>) {
   const { width } = useWindowDimensions();
   const compact = width < 640;
-  const webPullToRefresh = Platform.OS === "web" && compact && Boolean(onRefresh);
+  const webPullToRefresh = Platform.OS === "web" && Boolean(onRefresh);
   const fabSafe = fabSafeInset && width < 420;
   const scrollOffset = appShellStore((state) => state.scrollOffsets[screenKey] ?? 0);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -132,7 +132,7 @@ export function ScreenContainer({
       contentContainerStyle={[styles.content, compact && styles.contentCompact, fabSafe && styles.contentFabSafe]}
       showsVerticalScrollIndicator
       refreshControl={
-        compact && onRefresh && !webPullToRefresh ? (
+        onRefresh && !webPullToRefresh ? (
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => void triggerRefresh()}
