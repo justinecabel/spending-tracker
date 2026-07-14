@@ -347,7 +347,7 @@ export default function DashboardScreen() {
   );
   const predictionHistory = [
     ...drafts.filter((transaction) => transaction.userId === userId),
-    ...(predictionHistoryQuery.data ?? cachedPredictionHistory),
+    ...(predictionHistoryQuery.data ?? cachedPredictionHistory ?? []),
   ];
   // A newly signed-in profile has no query result or offline cache yet. Keep
   // the first render safe while the server creates/returns its categories.

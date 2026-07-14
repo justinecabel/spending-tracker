@@ -91,6 +91,17 @@ docker exec -it spending-tracker-tailscale tailscale up
 docker exec spending-tracker-tailscale tailscale serve --bg localhost:4000
 ```
 
+To run the local Expo app against the Docker API (rather than the separate
+local development API on port 4000), use:
+
+```bash
+pnpm dev:app:docker
+```
+
+It reads the Tailscale sidecar's current HTTPS hostname and starts Expo with
+that address as `EXPO_PUBLIC_API_URL`. Stop any existing Expo server first,
+because its API URL is fixed when the development bundle starts.
+
 ## Editing Guidelines
 
 - Prefer updating shared schemas in `packages/shared` before wiring client/server changes.

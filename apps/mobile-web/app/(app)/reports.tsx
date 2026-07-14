@@ -112,7 +112,7 @@ export default function ReportsScreen() {
   );
   const predictionHistory = [
     ...drafts.filter((transaction) => transaction.userId === userId),
-    ...(predictionHistoryQuery.data ?? cachedPredictionHistory),
+    ...(predictionHistoryQuery.data ?? cachedPredictionHistory ?? []),
   ];
   // Fresh accounts have neither loaded nor cached categories during their
   // first render. Reports should render an empty state until they arrive.
