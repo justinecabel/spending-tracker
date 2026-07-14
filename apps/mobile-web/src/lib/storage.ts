@@ -1,8 +1,10 @@
 const APP_STORAGE_PREFIX = "spending-tracker-";
 const PWA_HANDOFF_KEY = "spending-tracker-pwa-handoff";
 const PWA_HANDOFF_APPLIED_KEY = "spending-tracker-pwa-handoff-applied";
+const PWA_HANDOFF_REQUEST_TIMEOUT_MS = 1_500;
 
-let pwaStoragePrepared = false;
+let pwaStoragePrepared: Promise<void> | null = null;
+let pwaHandoffResponderInstalled = false;
 
 type PwaStorageHandoff = {
   version?: number;
@@ -17,45 +19,153 @@ function isStandalonePwa() {
   );
 }
 
+function readCurrentStorageHandoff(): PwaStorageHandoff {
+  const data: Record<string, string> = {};
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(APP_STORAGE_PREFIX) && key !== PWA_HANDOFF_KEY && key !== PWA_HANDOFF_APPLIED_KEY) {
+      const value = window.localStorage.getItem(key);
+      if (value !== null) {
+        data[key] = value;
+      }
+    }
+  }
+
+  return { version: 2, savedAt: new Date().toISOString(), data };
+}
+
+function applyStorageHandoff(handoff: PwaStorageHandoff | null) {
+  if (!handoff?.savedAt) {
+    return;
+  }
+
+  const appliedAt = window.localStorage.getItem(PWA_HANDOFF_APPLIED_KEY) ?? "";
+  if (handoff.savedAt <= appliedAt) {
+    return;
+  }
+
+  for (const [key, value] of Object.entries(handoff.data ?? {})) {
+    if (!key.startsWith(APP_STORAGE_PREFIX) || key === PWA_HANDOFF_KEY || key === PWA_HANDOFF_APPLIED_KEY) {
+      continue;
+    }
+    window.localStorage.setItem(key, value);
+  }
+  window.localStorage.setItem(PWA_HANDOFF_APPLIED_KEY, handoff.savedAt);
+}
+
+function installPwaHandoffResponder() {
+  if (pwaHandoffResponderInstalled || typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    return;
+  }
+
+  pwaHandoffResponderInstalled = true;
+  navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
+    const message = event.data as {
+      type?: string;
+      requestId?: string;
+      targetClientId?: string;
+    } | null;
+    if (message?.type !== "PWA_HANDOFF_REQUEST" || !message.requestId || !message.targetClientId) {
+      return;
+    }
+
+    const response = {
+      type: "PWA_HANDOFF_RESPONSE",
+      requestId: message.requestId,
+      targetClientId: message.targetClientId,
+      handoff: readCurrentStorageHandoff(),
+    };
+    const serviceWorker = event.source as ServiceWorker | null;
+    if (serviceWorker) {
+      serviceWorker.postMessage(response);
+    } else {
+      navigator.serviceWorker.controller?.postMessage(response);
+    }
+  });
+}
+
+async function requestPwaStorageHandoff() {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    return null;
+  }
+
+  const requestId = `pwa-handoff-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return new Promise<PwaStorageHandoff | null>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => finish(null), PWA_HANDOFF_REQUEST_TIMEOUT_MS);
+
+    const finish = (handoff: PwaStorageHandoff | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      navigator.serviceWorker.removeEventListener("message", handleMessage);
+      resolve(handoff);
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      const message = event.data as {
+        type?: string;
+        requestId?: string;
+        handoff?: PwaStorageHandoff;
+      } | null;
+      if (message?.type === "PWA_HANDOFF_RESPONSE" && message.requestId === requestId) {
+        finish(message.handoff ?? null);
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", handleMessage);
+    void navigator.serviceWorker.ready
+      .then((registration) => {
+        if (settled) {
+          return;
+        }
+        const worker = navigator.serviceWorker.controller ?? registration.active ?? registration.waiting;
+        if (!worker) {
+          finish(null);
+          return;
+        }
+        worker.postMessage({ type: "PWA_HANDOFF_REQUEST", requestId });
+      })
+      .catch(() => finish(null));
+  });
+}
+
 /**
  * Some browsers expose the installed PWA as a separate storage container.
  * Keep a small, same-origin handoff snapshot so the installed app can restore
  * the app's persisted state before Zustand rehydrates.
  */
 export function preparePwaStorage() {
-  if (pwaStoragePrepared || typeof window === "undefined") {
-    return;
+  if (typeof window === "undefined") {
+    return Promise.resolve();
   }
 
-  pwaStoragePrepared = true;
+  if (pwaStoragePrepared) {
+    return pwaStoragePrepared;
+  }
 
-  try {
-    const rawHandoff = window.localStorage.getItem(PWA_HANDOFF_KEY);
-    if (!rawHandoff) {
-      return;
-    }
-
+  pwaStoragePrepared = (async () => {
+    installPwaHandoffResponder();
     if (!isStandalonePwa()) {
       return;
     }
 
-    const handoff = JSON.parse(rawHandoff) as PwaStorageHandoff;
-    const savedAt = handoff.savedAt ?? "";
-    const appliedAt = window.localStorage.getItem(PWA_HANDOFF_APPLIED_KEY) ?? "";
-    if (!savedAt || savedAt <= appliedAt) {
-      return;
-    }
-
-    for (const [key, value] of Object.entries(handoff.data ?? {})) {
-      if (!key.startsWith(APP_STORAGE_PREFIX) || key === PWA_HANDOFF_KEY || key === PWA_HANDOFF_APPLIED_KEY) {
-        continue;
+    try {
+      const rawHandoff = window.localStorage.getItem(PWA_HANDOFF_KEY);
+      if (rawHandoff) {
+        applyStorageHandoff(JSON.parse(rawHandoff) as PwaStorageHandoff);
       }
-      window.localStorage.setItem(key, value);
+
+      const remoteHandoff = await requestPwaStorageHandoff();
+      applyStorageHandoff(remoteHandoff);
+    } catch {
+      // Storage or service-worker messaging can be unavailable in restricted webviews.
     }
-    window.localStorage.setItem(PWA_HANDOFF_APPLIED_KEY, savedAt);
-  } catch {
-    // Storage can be unavailable in private browsing or restricted webviews.
-  }
+  })();
+
+  return pwaStoragePrepared;
 }
 
 export function capturePwaStorageHandoff() {
@@ -63,24 +173,10 @@ export function capturePwaStorageHandoff() {
     return;
   }
 
-  preparePwaStorage();
+  void preparePwaStorage();
 
   try {
-    const data: Record<string, string> = {};
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
-      if (key?.startsWith(APP_STORAGE_PREFIX) && key !== PWA_HANDOFF_KEY && key !== PWA_HANDOFF_APPLIED_KEY) {
-        const value = window.localStorage.getItem(key);
-        if (value !== null) {
-          data[key] = value;
-        }
-      }
-    }
-
-    window.localStorage.setItem(
-      PWA_HANDOFF_KEY,
-      JSON.stringify({ version: 1, savedAt: new Date().toISOString(), data }),
-    );
+    window.localStorage.setItem(PWA_HANDOFF_KEY, JSON.stringify(readCurrentStorageHandoff()));
   } catch {
     // Storage can be unavailable in private browsing or restricted webviews.
   }
@@ -103,20 +199,17 @@ export const storage = {
     if (typeof window === "undefined") {
       return Promise.resolve(null);
     }
-    preparePwaStorage();
-    return Promise.resolve(window.localStorage.getItem(name));
+    return preparePwaStorage().then(() => window.localStorage.getItem(name));
   },
   setItem(name: string, value: string) {
     if (typeof window !== "undefined") {
-      preparePwaStorage();
-      window.localStorage.setItem(name, value);
+      return preparePwaStorage().then(() => window.localStorage.setItem(name, value));
     }
     return Promise.resolve();
   },
   removeItem(name: string) {
     if (typeof window !== "undefined") {
-      preparePwaStorage();
-      window.localStorage.removeItem(name);
+      return preparePwaStorage().then(() => window.localStorage.removeItem(name));
     }
     return Promise.resolve();
   },
