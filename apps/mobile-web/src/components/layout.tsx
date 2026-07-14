@@ -4,6 +4,29 @@ import { appShellStore, type TabKey } from "../state/app-shell";
 import { theme } from "../theme";
 
 type ScreenKey = TabKey | "sign-in";
+const pullTriggerDistance = 48;
+const pullMaxDistance = 112;
+
+type PullGestureEvent = {
+  pageY?: number;
+  clientY?: number;
+  pointerType?: string;
+  pointerId?: number;
+  touches?: Array<{ pageY?: number; clientY?: number }>;
+  changedTouches?: Array<{ pageY?: number; clientY?: number }>;
+  nativeEvent?: {
+    pageY?: number;
+    clientY?: number;
+    pointerType?: string;
+    pointerId?: number;
+    touches?: Array<{ pageY?: number; clientY?: number }>;
+    changedTouches?: Array<{ pageY?: number; clientY?: number }>;
+  };
+  currentTarget?: {
+    setPointerCapture?: (pointerId: number) => void;
+  };
+  preventDefault?: () => void;
+};
 
 export function ScreenContainer({
   children,
@@ -27,6 +50,7 @@ export function ScreenContainer({
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullingRef = useRef(false);
+  const gestureInputRef = useRef<"pointer" | "touch" | null>(null);
   const refreshInFlightRef = useRef(false);
   const [pullDistance, setPullDistance] = useState(0);
   const restoredRef = useRef(false);
@@ -66,32 +90,52 @@ export function ScreenContainer({
       refreshInFlightRef.current = false;
       pullDistanceRef.current = 0;
       pullingRef.current = false;
+      gestureInputRef.current = null;
       pullStartYRef.current = null;
       setPullDistance(0);
     }
   }, [onRefresh, webPullToRefresh]);
 
-  function getTouchPageY(event: { nativeEvent?: { touches?: Array<{ pageY?: number; clientY?: number }> } }) {
-    const touch = event.nativeEvent?.touches?.[0];
-    return touch?.pageY ?? touch?.clientY ?? null;
+  function getGesturePageY(event: PullGestureEvent) {
+    const source = event.nativeEvent ?? event;
+    const touch = source.touches?.[0] ?? source.changedTouches?.[0];
+    return source.pageY ?? source.clientY ?? touch?.pageY ?? touch?.clientY ?? null;
   }
 
-  function handleTouchStart(event: { nativeEvent?: { touches?: Array<{ pageY?: number; clientY?: number }> } }) {
-    if (!webPullToRefresh || refreshing || scrollOffsetRef.current > 0) {
-      return;
+  function isAtTop() {
+    const scrollNode = scrollViewRef.current as unknown as { scrollTop?: number } | null;
+    return (scrollNode?.scrollTop ?? scrollOffsetRef.current) <= 0;
+  }
+
+  function handlePullStart(event: PullGestureEvent, input: "pointer" | "touch") {
+    if (!webPullToRefresh || refreshing || !isAtTop()) {
+      return false;
     }
 
-    pullStartYRef.current = getTouchPageY(event);
+    pullStartYRef.current = getGesturePageY(event);
     pullDistanceRef.current = 0;
     pullingRef.current = false;
+    gestureInputRef.current = input;
+
+    const pointerId = (event.nativeEvent ?? event).pointerId;
+    if (input === "pointer" && pointerId !== undefined) {
+      event.currentTarget?.setPointerCapture?.(pointerId);
+    }
+    return true;
   }
 
-  function handleTouchMove(event: { nativeEvent?: { touches?: Array<{ pageY?: number; clientY?: number }> } }) {
-    if (!webPullToRefresh || refreshing || pullStartYRef.current === null || scrollOffsetRef.current > 0) {
+  function handlePullMove(event: PullGestureEvent, input: "pointer" | "touch") {
+    if (
+      !webPullToRefresh ||
+      refreshing ||
+      gestureInputRef.current !== input ||
+      pullStartYRef.current === null ||
+      !isAtTop()
+    ) {
       return;
     }
 
-    const pageY = getTouchPageY(event);
+    const pageY = getGesturePageY(event);
     if (pageY === null) {
       return;
     }
@@ -102,17 +146,22 @@ export function ScreenContainer({
     }
 
     pullingRef.current = true;
-    const nextDistance = Math.min(96, Math.round(distance * 0.55));
+    const nextDistance = Math.min(pullMaxDistance, Math.round(distance * 0.7));
     pullDistanceRef.current = nextDistance;
     setPullDistance(nextDistance);
+    event.preventDefault?.();
   }
 
-  function handleTouchEnd() {
+  function handlePullEnd(input: "pointer" | "touch") {
+    if (gestureInputRef.current !== input) {
+      return;
+    }
+
     if (!webPullToRefresh) {
       return;
     }
 
-    const shouldRefresh = pullingRef.current && pullDistanceRef.current >= 56;
+    const shouldRefresh = pullingRef.current && pullDistanceRef.current >= pullTriggerDistance;
     pullStartYRef.current = null;
     pullingRef.current = false;
 
@@ -122,8 +171,70 @@ export function ScreenContainer({
     }
 
     pullDistanceRef.current = 0;
+    gestureInputRef.current = null;
     setPullDistance(0);
   }
+
+  useEffect(() => {
+    if (!webPullToRefresh) {
+      return;
+    }
+
+    const scrollNode = scrollViewRef.current as unknown as HTMLElement | null;
+    if (!scrollNode?.addEventListener) {
+      return;
+    }
+
+    const pointerDown = (event: Event) => {
+      const gestureEvent = event as unknown as PullGestureEvent;
+      if (gestureEvent.pointerType === "mouse") {
+        return;
+      }
+      handlePullStart(gestureEvent, "pointer");
+    };
+    const pointerMove = (event: Event) => {
+      handlePullMove(event as unknown as PullGestureEvent, "pointer");
+    };
+    const pointerEnd = () => {
+      handlePullEnd("pointer");
+    };
+    const touchStart = (event: Event) => {
+      if (gestureInputRef.current === "pointer") {
+        return;
+      }
+      handlePullStart(event as unknown as PullGestureEvent, "touch");
+    };
+    const touchMove = (event: Event) => {
+      if (gestureInputRef.current === "pointer") {
+        return;
+      }
+      handlePullMove(event as unknown as PullGestureEvent, "touch");
+    };
+    const touchEnd = () => {
+      handlePullEnd("touch");
+    };
+    const nonPassive = { passive: false } as AddEventListenerOptions;
+
+    scrollNode.addEventListener("pointerdown", pointerDown, nonPassive);
+    scrollNode.addEventListener("pointermove", pointerMove, nonPassive);
+    scrollNode.addEventListener("pointerup", pointerEnd);
+    scrollNode.addEventListener("pointercancel", pointerEnd);
+    scrollNode.addEventListener("touchstart", touchStart, nonPassive);
+    scrollNode.addEventListener("touchmove", touchMove, nonPassive);
+    scrollNode.addEventListener("touchend", touchEnd);
+    scrollNode.addEventListener("touchcancel", touchEnd);
+
+    return () => {
+      scrollNode.removeEventListener("pointerdown", pointerDown, nonPassive);
+      scrollNode.removeEventListener("pointermove", pointerMove, nonPassive);
+      scrollNode.removeEventListener("pointerup", pointerEnd);
+      scrollNode.removeEventListener("pointercancel", pointerEnd);
+      scrollNode.removeEventListener("touchstart", touchStart, nonPassive);
+      scrollNode.removeEventListener("touchmove", touchMove, nonPassive);
+      scrollNode.removeEventListener("touchend", touchEnd);
+      scrollNode.removeEventListener("touchcancel", touchEnd);
+    };
+  }, [refreshing, triggerRefresh, webPullToRefresh]);
 
   return (
     <ScrollView
@@ -147,16 +258,16 @@ export function ScreenContainer({
         scrollOffsetRef.current = nextOffset;
         setScrollOffset(screenKey, nextOffset);
       }}
-      onTouchStart={webPullToRefresh ? handleTouchStart : undefined}
-      onTouchMove={webPullToRefresh ? handleTouchMove : undefined}
-      onTouchEnd={webPullToRefresh ? handleTouchEnd : undefined}
-      onTouchCancel={webPullToRefresh ? handleTouchEnd : undefined}
       scrollEventThrottle={16}
     >
       {webPullToRefresh && pullDistance > 0 ? (
         <View style={[styles.pullIndicator, { height: pullDistance }]}>
           <Text style={styles.pullIndicatorText}>
-            {refreshing ? "Refreshing..." : pullDistance >= 56 ? "Release to refresh" : "Pull to refresh"}
+            {refreshing
+              ? "Refreshing..."
+              : pullDistance >= pullTriggerDistance
+                ? "Release to refresh"
+                : "Pull to refresh"}
           </Text>
         </View>
       ) : null}
