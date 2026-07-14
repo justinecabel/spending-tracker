@@ -1,5 +1,5 @@
-const CACHE_NAME = "spending-tracker-shell-v12";
-const APP_SHELL = ["./", "./offline.html", "./manifest.webmanifest?v=12", "./icon-192.png", "./icon-512.png"];
+const CACHE_NAME = "spending-tracker-shell-v13";
+const APP_SHELL = ["./", "./offline.html", "./manifest.webmanifest?v=13", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

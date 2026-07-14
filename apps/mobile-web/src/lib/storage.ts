@@ -2,6 +2,11 @@ const APP_STORAGE_PREFIX = "spending-tracker-";
 const PWA_HANDOFF_KEY = "spending-tracker-pwa-handoff";
 const PWA_HANDOFF_APPLIED_KEY = "spending-tracker-pwa-handoff-applied";
 const PWA_HANDOFF_REQUEST_TIMEOUT_MS = 1_500;
+const PWA_HANDOFF_COOKIE_PREFIX = "spending-tracker-pwa-handoff-";
+const PWA_HANDOFF_COOKIE_COUNT_KEY = `${PWA_HANDOFF_COOKIE_PREFIX}count`;
+const PWA_HANDOFF_COOKIE_MAX_AGE = 600;
+const PWA_HANDOFF_COOKIE_CHUNK_SIZE = 3_000;
+const PWA_HANDOFF_COOKIE_MAX_CHUNKS = 24;
 
 let pwaStoragePrepared: Promise<void> | null = null;
 let pwaHandoffResponderInstalled = false;
@@ -32,6 +37,73 @@ function readCurrentStorageHandoff(): PwaStorageHandoff {
   }
 
   return { version: 2, savedAt: new Date().toISOString(), data };
+}
+
+function encodeCookiePayload(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 8_192) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 8_192));
+  }
+  return btoa(binary);
+}
+
+function decodeCookiePayload(value: string) {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function getCookie(name: string) {
+  const prefix = `${name}=`;
+  const cookie = document.cookie.split("; ").find((entry) => entry.startsWith(prefix));
+  return cookie ? cookie.slice(prefix.length) : null;
+}
+
+function clearPwaHandoffCookies() {
+  const cookieOptions = "Max-Age=0; Path=/; SameSite=Lax";
+  document.cookie = `${PWA_HANDOFF_COOKIE_COUNT_KEY}=; ${cookieOptions}`;
+  for (let index = 0; index < PWA_HANDOFF_COOKIE_MAX_CHUNKS; index += 1) {
+    document.cookie = `${PWA_HANDOFF_COOKIE_PREFIX}${index}=; ${cookieOptions}`;
+  }
+}
+
+function readPwaHandoffCookie() {
+  const count = Number(getCookie(PWA_HANDOFF_COOKIE_COUNT_KEY));
+  if (!Number.isInteger(count) || count < 1 || count > PWA_HANDOFF_COOKIE_MAX_CHUNKS) {
+    return null;
+  }
+
+  const chunks: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const chunk = getCookie(`${PWA_HANDOFF_COOKIE_PREFIX}${index}`);
+    if (!chunk) {
+      return null;
+    }
+    chunks.push(chunk);
+  }
+
+  try {
+    return JSON.parse(decodeCookiePayload(chunks.join(""))) as PwaStorageHandoff;
+  } catch {
+    return null;
+  }
+}
+
+function writePwaHandoffCookie(handoff: PwaStorageHandoff) {
+  const serialized = encodeCookiePayload(JSON.stringify(handoff));
+  const chunks = serialized.match(new RegExp(`.{1,${PWA_HANDOFF_COOKIE_CHUNK_SIZE}}`, "g")) ?? [];
+  if (chunks.length > PWA_HANDOFF_COOKIE_MAX_CHUNKS) {
+    return;
+  }
+
+  clearPwaHandoffCookies();
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  const cookieOptions = `Max-Age=${PWA_HANDOFF_COOKIE_MAX_AGE}; Path=/; SameSite=Lax${secure}`;
+  chunks.forEach((chunk, index) => {
+    document.cookie = `${PWA_HANDOFF_COOKIE_PREFIX}${index}=${chunk}; ${cookieOptions}`;
+  });
+  document.cookie = `${PWA_HANDOFF_COOKIE_COUNT_KEY}=${chunks.length}; ${cookieOptions}`;
 }
 
 function applyStorageHandoff(handoff: PwaStorageHandoff | null) {
@@ -153,6 +225,9 @@ export function preparePwaStorage() {
     }
 
     try {
+      applyStorageHandoff(readPwaHandoffCookie());
+      clearPwaHandoffCookies();
+
       const rawHandoff = window.localStorage.getItem(PWA_HANDOFF_KEY);
       if (rawHandoff) {
         applyStorageHandoff(JSON.parse(rawHandoff) as PwaStorageHandoff);
@@ -176,7 +251,11 @@ export function capturePwaStorageHandoff() {
   void preparePwaStorage();
 
   try {
-    window.localStorage.setItem(PWA_HANDOFF_KEY, JSON.stringify(readCurrentStorageHandoff()));
+    const handoff = readCurrentStorageHandoff();
+    window.localStorage.setItem(PWA_HANDOFF_KEY, JSON.stringify(handoff));
+    if (!isStandalonePwa()) {
+      writePwaHandoffCookie(handoff);
+    }
   } catch {
     // Storage can be unavailable in private browsing or restricted webviews.
   }
