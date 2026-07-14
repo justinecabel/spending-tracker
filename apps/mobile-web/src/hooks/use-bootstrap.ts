@@ -15,9 +15,31 @@ export function useBootstrapSession() {
       return;
     }
 
-    api
-      .refreshToken(refreshToken)
-      .then((session) => setSession(session, (activeProfile ?? "device") as ProfileSlot))
-      .catch(() => clearSession());
+    let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const restore = () => {
+      api
+        .refreshToken(refreshToken)
+        .then((session) => {
+          if (active) {
+            setSession(session, (activeProfile ?? "device") as ProfileSlot);
+          }
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message.toLowerCase() : "";
+          if (message.includes("network") || message.includes("fetch") || message.includes("abort")) {
+            retryTimer = setTimeout(restore, 4_000);
+            return;
+          }
+          clearSession();
+        });
+    };
+
+    restore();
+    return () => {
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [accessToken, activeProfile, clearSession, refreshToken, setSession]);
 }

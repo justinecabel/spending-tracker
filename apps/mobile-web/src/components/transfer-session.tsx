@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   secondaryButtonText: {
-    color: theme.colors.accent,
+    color: theme.colors.accentSoftText,
     fontWeight: "700",
   },
   primaryButton: {
@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   primaryButtonText: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
     fontWeight: "700",
   },
 });

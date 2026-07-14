@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Platform, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from "react-native";
+import { Animated, Easing, Platform, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from "react-native";
 import DashboardScreen from "./app/(app)/index";
 import ReportsScreen from "./app/(app)/reports";
 import SettingsScreen from "./app/(app)/settings";
@@ -9,12 +9,13 @@ import SignInScreen from "./app/sign-in";
 import { useBootstrapSession } from "./src/hooks/use-bootstrap";
 import { useLiveUpdates } from "./src/hooks/use-live-updates";
 import { useOfflineStatus } from "./src/hooks/use-offline-status";
+import { useBackendAvailability } from "./src/hooks/use-backend-availability";
 import { PwaInstallContext, usePwaInstall } from "./src/hooks/use-pwa-install";
 import { useSyncQueue } from "./src/hooks/use-sync";
 import { Providers } from "./src/providers";
 import { WebPressable as Pressable } from "./src/components/web-pressable";
 import { appShellStore, normalizeTabKey, type TabKey } from "./src/state/app-shell";
-import { appearanceStore } from "./src/state/appearance";
+import { appearanceStore, getAppearanceProfileKey } from "./src/state/appearance";
 import { sessionStore } from "./src/state/session";
 import { offlineQueueStore } from "./src/state/offline-queue";
 import { applyThemeMode, getPalette, resolveAppearance, theme } from "./src/theme";
@@ -43,14 +44,68 @@ function buildTabUrl(tab: TabKey) {
   return `${window.location.pathname}${window.location.search}#/${tab}`;
 }
 
+function LoadingSplash({
+  backgroundColor,
+  accentColor,
+  inkColor,
+  mutedColor,
+  message,
+}: {
+  backgroundColor: string;
+  accentColor: string;
+  inkColor: string;
+  mutedColor: string;
+  message: string;
+}) {
+  const pullDown = useRef(new Animated.Value(-92)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    pullDown.setValue(-92);
+    opacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(pullDown, {
+        toValue: 0,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [opacity, pullDown]);
+
+  return (
+    <View style={[styles.loading, { backgroundColor }]}>
+      <Animated.View style={[styles.loadingIndicator, { opacity, transform: [{ translateY: pullDown }] }]}>
+        <View style={[styles.splashMark, { backgroundColor: accentColor }]}>
+          <Text style={styles.splashMarkText}>💸</Text>
+        </View>
+      </Animated.View>
+      <View style={styles.loadingContent}>
+        <Text style={[styles.splashTitle, { color: inkColor }]}>Spending Tracker</Text>
+        <Text style={[styles.loadingText, { color: mutedColor }]}>{message}</Text>
+      </View>
+    </View>
+  );
+}
+
 function AppShell() {
   const tab = appShellStore((state) => state.tab);
   const setTab = appShellStore((state) => state.setTab);
-  const appearanceMode = appearanceStore((state) => state.mode);
   const hydrated = sessionStore((state) => state.hydrated);
   const accessToken = sessionStore((state) => state.accessToken);
   const activeProfile = sessionStore((state) => state.activeProfile);
-  const pendingSyncCount = offlineQueueStore((state) => state.mutations.length);
+  const userId = sessionStore((state) => state.user?.id);
+  const appearanceProfileKey = getAppearanceProfileKey(activeProfile, userId);
+  const appearanceMode = appearanceStore((state) => state.getMode(appearanceProfileKey));
+  const customAccent = appearanceStore((state) => state.getAccent(appearanceProfileKey));
+  const customSecondaryAccent = appearanceStore((state) => state.getSecondaryAccent(appearanceProfileKey));
+  const pendingSyncCount = offlineQueueStore((state) => state.mutations.filter((mutation) => mutation.userId === userId).length);
   const deviceScheme = useColorScheme();
   const { width } = useWindowDimensions();
   const compact = width < 640;
@@ -62,17 +117,21 @@ function AppShell() {
   const historyReady = useRef(false);
   const isWeb = Platform.OS === "web" && typeof window !== "undefined";
   const activeTab = normalizeTabKey(tab);
-  const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus();
+  // Before sign-in, applying a waiting service-worker update is safe: no
+  // authenticated edits can be interrupted. This prevents an old waiting
+  // update from surfacing as a "new version" banner after every login.
+  const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus({ autoApplyWaitingUpdate: !accessToken });
+  const backendStatus = useBackendAvailability();
 
   useBootstrapSession();
-  useSyncQueue(Boolean(accessToken));
+  useSyncQueue(accessToken ? userId : null);
   useLiveUpdates(Boolean(accessToken));
 
   useEffect(() => {
-    applyThemeMode(appearanceMode, deviceScheme);
-  }, [appearanceMode, deviceScheme]);
+    applyThemeMode(appearanceMode, deviceScheme, customAccent, customSecondaryAccent);
+  }, [appearanceMode, customAccent, customSecondaryAccent, deviceScheme]);
 
-  const palette = getPalette(resolveAppearance(appearanceMode, deviceScheme));
+  const palette = getPalette(resolveAppearance(appearanceMode, deviceScheme), customAccent, customSecondaryAccent);
 
   useEffect(() => {
     if (previousProfile.current === activeProfile) {
@@ -172,15 +231,15 @@ function AppShell() {
     }
   }, [accessToken, activeTab, isWeb, setTab]);
 
-  if (!hydrated) {
+  if (!hydrated || (isOnline && backendStatus !== "available")) {
     return (
-      <View style={[styles.loading, { backgroundColor: palette.paper }]}>
-        <View style={[styles.splashMark, { backgroundColor: palette.accent }]}>
-          <Text style={styles.splashMarkText}>💸</Text>
-        </View>
-        <Text style={[styles.splashTitle, { color: palette.ink }]}>Spend</Text>
-        <Text style={[styles.loadingText, { color: palette.muted }]}>Loading your tracker</Text>
-      </View>
+      <LoadingSplash
+        backgroundColor={palette.paper}
+        accentColor={palette.accent}
+        inkColor={palette.ink}
+        mutedColor={palette.muted}
+        message={!hydrated ? "Loading your tracker" : "Connecting to your tracker..."}
+      />
     );
   }
 
@@ -217,10 +276,12 @@ function AppShell() {
             </Pressable>
           ))}
         </View>
-        {updateAvailable || !isOnline || pendingSyncCount > 0 ? (
+        {updateAvailable || !isOnline || pendingSyncCount > 0 || backendStatus !== "available" ? (
           <View style={[styles.syncBanner, { backgroundColor: isOnline ? palette.accentSoft : palette.field, borderTopColor: palette.border }]}>
             <Text style={[styles.syncBannerText, styles.syncBannerMessage, { color: isOnline ? palette.accent : palette.warning }]}>
-              {updateAvailable
+              {backendStatus !== "available"
+                ? "Connecting to your tracker..."
+                : updateAvailable
                 ? "A new version is ready. Reload to update the app."
                 : isOnline
                 ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} waiting to sync`
@@ -246,7 +307,15 @@ function AppShell() {
 }
 
 function AppWithPwaInstall() {
-  const pwaInstall = usePwaInstall();
+  const activeProfile = sessionStore((state) => state.activeProfile);
+  const userId = sessionStore((state) => state.user?.id);
+  const appearanceProfileKey = getAppearanceProfileKey(activeProfile, userId);
+  const appearanceMode = appearanceStore((state) => state.getMode(appearanceProfileKey));
+  const customAccent = appearanceStore((state) => state.getAccent(appearanceProfileKey));
+  const customSecondaryAccent = appearanceStore((state) => state.getSecondaryAccent(appearanceProfileKey));
+  const deviceScheme = useColorScheme();
+  const palette = getPalette(resolveAppearance(appearanceMode, deviceScheme), customAccent, customSecondaryAccent);
+  const pwaInstall = usePwaInstall({ surface: palette.card });
 
   return (
     <PwaInstallContext.Provider value={pwaInstall}>
@@ -308,7 +377,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   updateButtonText: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
     fontSize: 13,
     fontWeight: "800",
   },
@@ -326,14 +395,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accent,
   },
   tabLabel: {
-    color: theme.colors.accent,
+    color: theme.colors.accentSoftText,
     fontWeight: "700",
   },
   tabLabelCompact: {
     fontSize: 14,
   },
   tabLabelActive: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
   },
   content: {
     flex: 1,
@@ -343,9 +412,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.colors.paper,
+    overflow: "hidden",
+  },
+  loadingContent: {
+    alignItems: "center",
     gap: 10,
   },
+  loadingIndicator: {
+    position: "absolute",
+    top: 18,
+  },
   splashMark: {
+    display: "none",
     alignItems: "center",
     borderRadius: 28,
     height: 76,
@@ -354,11 +432,12 @@ const styles = StyleSheet.create({
     width: 76,
   },
   splashMarkText: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
     fontSize: 34,
     fontWeight: "800",
   },
   splashTitle: {
+    display: "none",
     fontSize: 28,
     fontWeight: "800",
   },

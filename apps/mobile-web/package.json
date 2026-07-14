@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "expo start",
     "web": "expo start --web",
+    "build": "expo export --platform web",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

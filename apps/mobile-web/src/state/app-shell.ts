@@ -16,8 +16,11 @@ export function normalizeTabKey(value: unknown): TabKey {
 
 type AppShellState = {
   tab: TabKey;
+  transactionToView: string | null;
   scrollOffsets: Partial<Record<TabKey | "sign-in", number>>;
   setTab: (tab: TabKey) => void;
+  showTransaction: (id: string) => void;
+  clearTransactionToView: () => void;
   setScrollOffset: (key: TabKey | "sign-in", value: number) => void;
 };
 
@@ -25,8 +28,11 @@ export const appShellStore = create<AppShellState>()(
   persist(
     (set) => ({
       tab: "home",
+      transactionToView: null,
       scrollOffsets: {},
       setTab: (tab) => set({ tab: normalizeTabKey(tab) }),
+      showTransaction: (id) => set({ tab: "transactions", transactionToView: id }),
+      clearTransactionToView: () => set({ transactionToView: null }),
       setScrollOffset: (key, value) =>
         set((state) => ({
           scrollOffsets: {
@@ -45,6 +51,7 @@ export const appShellStore = create<AppShellState>()(
           ...currentState,
           ...persisted,
           tab: normalizeTabKey(persisted.tab),
+          transactionToView: null,
           scrollOffsets: persisted.scrollOffsets ?? currentState.scrollOffsets,
         };
       },

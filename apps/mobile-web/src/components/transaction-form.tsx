@@ -504,7 +504,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   submitText: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
     fontWeight: "700",
   },
   suggestionList: {
@@ -519,7 +519,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accentSoft,
   },
   suggestionText: {
-    color: theme.colors.accent,
+    color: theme.colors.accentSoftText,
     fontWeight: "600",
   },
   modalScrim: {
@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   secondaryButtonText: {
-    color: theme.colors.accent,
+    color: theme.colors.accentSoftText,
     fontWeight: "700",
   },
   modalSubmit: {

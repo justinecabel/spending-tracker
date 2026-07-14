@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export function useOfflineStatus() {
+export function useOfflineStatus({ autoApplyWaitingUpdate = false }: { autoApplyWaitingUpdate?: boolean } = {}) {
   const [isOnline, setIsOnline] = useState(true);
   const [hasCachedShell, setHasCachedShell] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -42,6 +42,10 @@ export function useOfflineStatus() {
           registrationRef.current = registration;
           setHasCachedShell(true);
 
+          const activateWaitingWorker = () => {
+            registration.waiting?.postMessage({ type: "SKIP_WAITING" });
+          };
+
           const watchInstallingWorker = () => {
             const installingWorker = registration.installing;
             if (!installingWorker) {
@@ -50,14 +54,22 @@ export function useOfflineStatus() {
 
             installingWorker.addEventListener("statechange", () => {
               if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
-                setUpdateAvailable(true);
+                if (autoApplyWaitingUpdate) {
+                  activateWaitingWorker();
+                } else {
+                  setUpdateAvailable(true);
+                }
               }
             });
           };
 
           registration.addEventListener("updatefound", watchInstallingWorker);
           if (registration.waiting && navigator.serviceWorker.controller) {
-            setUpdateAvailable(true);
+            if (autoApplyWaitingUpdate) {
+              activateWaitingWorker();
+            } else {
+              setUpdateAvailable(true);
+            }
           }
         })
         .catch(() => setHasCachedShell(false));
@@ -68,7 +80,7 @@ export function useOfflineStatus() {
       window.removeEventListener("online", updateNetworkState);
       window.removeEventListener("offline", updateNetworkState);
     };
-  }, []);
+  }, [autoApplyWaitingUpdate]);
 
   return { isOnline, hasCachedShell, updateAvailable, applyUpdate };
 }

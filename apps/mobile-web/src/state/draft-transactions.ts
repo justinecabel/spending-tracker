@@ -11,6 +11,7 @@ type DraftState = {
   drafts: Transaction[];
   addDraft: (transaction: DraftInput) => Transaction;
   removeDraftByClientId: (clientId: string) => void;
+  replaceCategoryId: (fromCategoryId: string, toCategoryId: string) => void;
 };
 
 export const draftTransactionsStore = create<DraftState>()(
@@ -35,6 +36,12 @@ export const draftTransactionsStore = create<DraftState>()(
       removeDraftByClientId: (clientId) =>
         set((state) => ({
           drafts: state.drafts.filter((draft) => draft.id !== clientId),
+        })),
+      replaceCategoryId: (fromCategoryId, toCategoryId) =>
+        set((state) => ({
+          drafts: state.drafts.map((draft) =>
+            draft.categoryId === fromCategoryId ? { ...draft, categoryId: toCategoryId } : draft,
+          ),
         })),
     }),
     {

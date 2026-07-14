@@ -1,17 +1,25 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Modal, Platform, StyleSheet, Text, TextInput, View } from "react-native";
-import type { Category } from "@spending-tracker/shared";
+import type { Budget, Category } from "@spending-tracker/shared";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { formatMoney, monthKey } from "../../src/lib/date";
 import { sessionStore } from "../../src/state/session";
+import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
+import { offlineQueueStore } from "../../src/state/offline-queue";
+import { nanoid } from "nanoid/non-secure";
 import { theme } from "../../src/theme";
 
 export default function BudgetsScreen() {
   const month = monthKey();
   const user = sessionStore((state) => state.user);
+  const userId = user?.id ?? "anonymous";
+  const budgetCacheKey = transactionScopeKey(userId, `budgets:${month}`);
+  const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
+  const cachedBudgets = offlineCacheStore((state) => state.budgetsByScope[budgetCacheKey]);
+  const enqueue = offlineQueueStore((state) => state.enqueue);
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState("");
   const [draftAmount, setDraftAmount] = useState("");
@@ -19,11 +27,29 @@ export default function BudgetsScreen() {
 
   const categoriesQuery = useQuery({
     queryKey: ["categories"],
-    queryFn: api.categories,
+    queryFn: async () => {
+      try {
+        const categories = await api.categories();
+        offlineCacheStore.getState().setCategories(userId, categories);
+        return categories;
+      } catch (error) {
+        if (cachedCategories) return cachedCategories;
+        throw error;
+      }
+    },
   });
   const budgetsQuery = useQuery({
     queryKey: ["budgets", month],
-    queryFn: () => api.budgets(month),
+    queryFn: async () => {
+      try {
+        const budgets = await api.budgets(month);
+        offlineCacheStore.getState().setBudgets(budgetCacheKey, budgets);
+        return budgets;
+      } catch (error) {
+        if (cachedBudgets) return cachedBudgets;
+        throw error;
+      }
+    },
   });
 
   const saveBudget = useMutation({
@@ -34,6 +60,43 @@ export default function BudgetsScreen() {
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
     },
   });
+
+  function isOfflineOrNetworkError(error?: unknown) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    return message.includes("network") || message.includes("fetch");
+  }
+
+  function queueBudget(input: Parameters<typeof api.upsertBudget>[0]) {
+    const now = new Date().toISOString();
+    const budget: Budget = {
+      id: input.id ?? `budget-${input.categoryId ?? "overall"}-${input.month}`,
+      userId,
+      categoryId: input.categoryId,
+      month: input.month,
+      amount: input.amount,
+      rollover: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    offlineCacheStore.getState().upsertBudget(budgetCacheKey, budget);
+    enqueue({ id: nanoid(), userId, entity: "budget", action: "upsert", payload: input, createdAt: now });
+    void queryClient.invalidateQueries({ queryKey: ["budgets"] });
+    void queryClient.invalidateQueries({ queryKey: ["report"] });
+    void queryClient.invalidateQueries({ queryKey: ["reports"] });
+  }
+
+  async function handleSaveBudget(input: Parameters<typeof api.upsertBudget>[0]) {
+    if (isOfflineOrNetworkError()) {
+      queueBudget(input);
+      return;
+    }
+    try {
+      await saveBudget.mutateAsync(input);
+    } catch (error) {
+      if (isOfflineOrNetworkError(error)) queueBudget(input);
+    }
+  }
 
   const budgetMap = new Map((budgetsQuery.data ?? []).map((budget) => [budget.categoryId ?? "overall", budget]));
   const categories = (categoriesQuery.data ?? []).filter(
@@ -103,7 +166,7 @@ export default function BudgetsScreen() {
                   if (!selectedCategory || saveBudget.isPending) {
                     return;
                   }
-                  saveBudget.mutate({
+                  void handleSaveBudget({
                     categoryId: selectedCategory.id,
                     month,
                     amount: Number(draftAmount || selectedBudgetAmount || 0),

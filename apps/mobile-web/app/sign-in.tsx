@@ -73,6 +73,11 @@ export default function SignInScreen() {
           onSuccess={(session) => setSession(session, "linked")}
         />
       </Card>
+
+      <Text style={styles.privacyFooter}>
+        By continuing, you allow Spending Tracker to store a Device ID and session on this device for offline access and sync.
+        Clearing site data or using a shared device can remove or expose this remembered profile.
+      </Text>
     </ScreenContainer>
   );
 }
@@ -88,6 +93,14 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     alignSelf: "center",
     padding: 18,
+  },
+  privacyFooter: {
+    alignSelf: "center",
+    color: theme.colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    maxWidth: 520,
+    paddingHorizontal: 6,
   },
   actions: {
     marginTop: 12,

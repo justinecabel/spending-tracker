@@ -176,10 +176,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   buttonTextPrimary: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
   },
   buttonTextGhost: {
-    color: theme.colors.accent,
+    color: theme.colors.accentSoftText,
   },
   metric: {
     gap: 4,

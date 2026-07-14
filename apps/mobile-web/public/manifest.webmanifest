@@ -1,6 +1,6 @@
 {
   "name": "Spending Tracker",
-  "short_name": "Spend",
+  "short_name": "Spending Tracker",
   "description": "Manual spending tracker with budgets, reports, and transfer sync.",
   "lang": "en",
   "id": "spending-tracker",

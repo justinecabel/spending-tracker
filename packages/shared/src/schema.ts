@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const transactionKindSchema = z.enum(["expense", "income"]);
-export const expenseKindSchema = z.literal("expense");
+export const transactionKindSchema = z.literal("expense");
+export const expenseKindSchema = transactionKindSchema;
 
 export const userSchema = z.object({
   id: z.string(),
@@ -158,8 +158,9 @@ export const monthlyReportSchema = z.object({
 
 export const syncMutationSchema = z.object({
   id: z.string(),
-  entity: z.enum(["transaction"]),
-  action: z.enum(["create", "update", "delete"]),
+  userId: z.string().min(1),
+  entity: z.enum(["transaction", "category", "budget", "preferences"]),
+  action: z.enum(["create", "update", "delete", "upsert"]),
   payload: z.record(z.any()),
   createdAt: z.string(),
 });

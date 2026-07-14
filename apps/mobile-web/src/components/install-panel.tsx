@@ -14,7 +14,7 @@ export function InstallPanel() {
           isInstalled
             ? "This web app is already installed on this device."
             : canInstall
-              ? "Install this tracker. Your device ID, saved profiles, login session, and offline changes will stay with the app."
+              ? "Install this tracker. Your active profile's custom accent, device ID, saved profiles, login session, and offline changes will stay with the app."
               : "If your browser supports installation, the install action will appear here."
         }
       />

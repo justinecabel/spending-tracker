@@ -1,4 +1,4 @@
-import { storage } from "./storage";
+import { requestPersistentStorage, storage } from "./storage";
 
 const DEVICE_STORAGE_KEY = "spending-tracker-device-id";
 
@@ -11,6 +11,11 @@ export async function getDeviceId() {
 }
 
 export async function ensureDeviceId() {
+  // This is normally called from an explicit sign-in action, where browsers are
+  // most likely to honor a persistence request. The request is best-effort;
+  // the app still works if a browser declines it.
+  void requestPersistentStorage();
+
   const existing = await getDeviceId();
   if (existing) {
     return existing;

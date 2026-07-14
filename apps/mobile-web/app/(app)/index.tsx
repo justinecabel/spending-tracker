@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Transaction } from "@spending-tracker/shared";
+import type { Category, CreateCategoryInput, Transaction } from "@spending-tracker/shared";
 import { Card, Metric, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
@@ -7,7 +7,7 @@ import { formatDateLabel, formatMoney } from "../../src/lib/date";
 import { buildSpendingReport, resolveSummaryRange } from "../../src/lib/summary-range";
 import { TransactionForm } from "../../src/components/transaction-form";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
-import { EMPTY_CATEGORIES, EMPTY_TRANSACTIONS, offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
+import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
 import { offlineQueueStore } from "../../src/state/offline-queue";
 import { summaryRangeStore } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
@@ -39,11 +39,11 @@ export default function DashboardScreen() {
   const drafts = draftTransactionsStore((state) => state.drafts);
   const enqueue = offlineQueueStore((state) => state.enqueue);
   const userId = user?.id ?? "anonymous";
-  const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]) ?? EMPTY_CATEGORIES;
+  const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
   const transactionCacheId = transactionScopeKey(userId, `summary:${range.key}`);
-  const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]) ?? EMPTY_TRANSACTIONS;
+  const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]);
   const predictionHistoryCacheId = transactionScopeKey(userId, "prediction-history");
-  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]) ?? EMPTY_TRANSACTIONS;
+  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]);
 
   const categoriesQuery = useQuery({
     queryKey: ["categories", userId],
@@ -53,7 +53,7 @@ export default function DashboardScreen() {
         offlineCacheStore.getState().setCategories(userId, categories);
         return categories;
       } catch (error) {
-        if (cachedCategories.length > 0) {
+        if (cachedCategories) {
           return cachedCategories;
         }
         throw error;
@@ -72,7 +72,7 @@ export default function DashboardScreen() {
         offlineCacheStore.getState().setTransactions(transactionCacheId, transactions);
         return transactions;
       } catch (error) {
-        if (cachedTransactions.length > 0) {
+        if (cachedTransactions) {
           return cachedTransactions;
         }
         throw error;
@@ -88,7 +88,7 @@ export default function DashboardScreen() {
         offlineCacheStore.getState().setTransactions(predictionHistoryCacheId, transactions);
         return transactions;
       } catch (error) {
-        if (cachedPredictionHistory.length > 0) {
+        if (cachedPredictionHistory) {
           return cachedPredictionHistory;
         }
         throw error;
@@ -129,13 +129,157 @@ export default function DashboardScreen() {
     },
   });
 
+  function isOfflineOrNetworkError(error?: unknown) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      return true;
+    }
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    return message.includes("network") || message.includes("fetch");
+  }
+
+  function refreshCategoryData() {
+    void queryClient.invalidateQueries({ queryKey: ["categories"] });
+    void queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    void queryClient.invalidateQueries({ queryKey: ["reports"] });
+  }
+
+  function queueCategoryCreate(data: CreateCategoryInput): Category {
+    const now = new Date().toISOString();
+    const temporaryId = `category-${nanoid()}`;
+    const category: Category = {
+      id: temporaryId,
+      userId,
+      name: data.name,
+      kind: data.kind,
+      color: data.color,
+      icon: data.icon,
+      isSystem: false,
+      sortOrder: (offlineCacheStore.getState().categoriesByUser[userId] ?? []).length,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    offlineCacheStore.getState().upsertCategory(userId, category);
+    enqueue({
+      id: nanoid(),
+      userId,
+      entity: "category",
+      action: "create",
+      payload: { userId, temporaryId, data },
+      createdAt: now,
+    });
+    refreshCategoryData();
+    return category;
+  }
+
+  function queueCategoryUpdate(id: string, data: Parameters<typeof api.updateCategory>[1]): Category {
+    const current = (offlineCacheStore.getState().categoriesByUser[userId] ?? []).find((category) => category.id === id);
+    const category: Category = {
+      ...(current ?? {
+        id,
+        userId,
+        name: data.name ?? "Category",
+        kind: data.kind ?? "expense",
+        color: data.color ?? theme.colors.accent,
+        icon: data.icon ?? "wallet",
+        isSystem: false,
+        sortOrder: 0,
+        archived: false,
+        createdAt: new Date().toISOString(),
+      }),
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+    offlineCacheStore.getState().upsertCategory(userId, category);
+    enqueue({
+      id: nanoid(),
+      userId,
+      entity: "category",
+      action: "update",
+      payload: { id, data },
+      createdAt: new Date().toISOString(),
+    });
+    refreshCategoryData();
+    return category;
+  }
+
+  async function handleCreateCategory(data: CreateCategoryInput) {
+    if (isOfflineOrNetworkError()) {
+      return queueCategoryCreate(data);
+    }
+    try {
+      return await createCategory.mutateAsync(data);
+    } catch (error) {
+      if (isOfflineOrNetworkError(error)) {
+        return queueCategoryCreate(data);
+      }
+      throw error;
+    }
+  }
+
+  async function handleUpdateCategory(id: string, data: Parameters<typeof api.updateCategory>[1]) {
+    if (isOfflineOrNetworkError()) {
+      return queueCategoryUpdate(id, data);
+    }
+    try {
+      return await updateCategory.mutateAsync({ id, data });
+    } catch (error) {
+      if (isOfflineOrNetworkError(error)) {
+        return queueCategoryUpdate(id, data);
+      }
+      throw error;
+    }
+  }
+
+  async function handleDeleteCategory(id: string) {
+    if (isOfflineOrNetworkError()) {
+      const archivedCategory = queueCategoryUpdate(id, { archived: true });
+      const queuedUpdate = offlineQueueStore.getState().mutations.at(-1);
+      if (queuedUpdate?.entity === "category" && queuedUpdate.action === "update") {
+        offlineQueueStore.getState().remove(queuedUpdate.id);
+      }
+      enqueue({
+        id: nanoid(),
+        userId,
+        entity: "category",
+        action: "delete",
+        payload: { id },
+        createdAt: new Date().toISOString(),
+      });
+      return archivedCategory;
+    }
+    try {
+      const deleted = await deleteCategory.mutateAsync(id);
+      offlineCacheStore.getState().upsertCategory(userId, deleted);
+      return deleted;
+    } catch (error) {
+      if (isOfflineOrNetworkError(error)) {
+        const archivedCategory = queueCategoryUpdate(id, { archived: true });
+        const queuedUpdate = offlineQueueStore.getState().mutations.at(-1);
+        if (queuedUpdate?.entity === "category" && queuedUpdate.action === "update") {
+          offlineQueueStore.getState().remove(queuedUpdate.id);
+        }
+        enqueue({
+          id: nanoid(),
+          userId,
+          entity: "category",
+          action: "delete",
+          payload: { id },
+          createdAt: new Date().toISOString(),
+        });
+        return archivedCategory;
+      }
+      throw error;
+    }
+  }
+
   async function handleCreateTransaction(input: Parameters<typeof api.createTransaction>[0]) {
     const clientId = input.clientId ?? `client-${Date.now()}`;
     const payload = {
       ...input,
       clientId,
     };
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
+    if (isOfflineOrNetworkError()) {
       addDraft({
         userId: user?.id ?? "offline-user",
         categoryId: payload.categoryId,
@@ -148,6 +292,7 @@ export default function DashboardScreen() {
       });
       enqueue({
         id: nanoid(),
+        userId,
         entity: "transaction",
         action: "create",
         payload,
@@ -159,8 +304,7 @@ export default function DashboardScreen() {
     try {
       await createTransaction.mutateAsync(payload);
     } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : "";
-      if (message.includes("network") || message.includes("fetch")) {
+      if (isOfflineOrNetworkError(error)) {
         addDraft({
           userId: user?.id ?? "offline-user",
           categoryId: payload.categoryId,
@@ -173,6 +317,7 @@ export default function DashboardScreen() {
         });
         enqueue({
           id: nanoid(),
+          userId,
           entity: "transaction",
           action: "create",
           payload,
@@ -240,7 +385,11 @@ export default function DashboardScreen() {
           transactions.slice(0, 5).map((transaction, index, items) => {
           const isDraft = transaction.id.startsWith("client-");
           return (
-          <View key={transaction.id} style={[styles.row, isDraft && styles.pendingRow, index === items.length - 1 && styles.rowLast]}>
+          <Pressable
+            key={transaction.id}
+            style={[styles.row, isDraft && styles.pendingRow, index === items.length - 1 && styles.rowLast]}
+            onPress={() => appShellStore.getState().showTransaction(transaction.id)}
+          >
             <View>
               <Text style={styles.rowTitle}>{transaction.merchant ?? transaction.note ?? "Transaction"}</Text>
               <Text style={styles.rowMeta}>
@@ -249,7 +398,7 @@ export default function DashboardScreen() {
               </Text>
             </View>
             <Text style={styles.rowAmount}>{formatMoney(transaction.amount, user?.currency ?? "USD")}</Text>
-          </View>
+          </Pressable>
           );
           })
         )}
@@ -362,7 +511,7 @@ export default function DashboardScreen() {
                   setIsQuickAddOpen(false);
                 }}
                 onCreateCategory={({ name, color }) =>
-                  createCategory.mutateAsync({
+                  handleCreateCategory({
                     name,
                     color,
                     icon: "wallet",
@@ -370,12 +519,9 @@ export default function DashboardScreen() {
                   })
                 }
                 onUpdateCategory={(id, data) =>
-                  updateCategory.mutateAsync({
-                    id,
-                    data,
-                  })
+                  handleUpdateCategory(id, data)
                 }
-                onDeleteCategory={(id) => deleteCategory.mutateAsync(id)}
+                onDeleteCategory={handleDeleteCategory}
               />
             )}
           </View>

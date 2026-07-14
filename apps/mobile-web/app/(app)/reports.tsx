@@ -10,7 +10,7 @@ import { api } from "../../src/lib/api";
 import { formatMoney } from "../../src/lib/date";
 import { buildSpendingReport, resolveSummaryRange, type ResolvedSummaryRange } from "../../src/lib/summary-range";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
-import { EMPTY_CATEGORIES, EMPTY_TRANSACTIONS, offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
+import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
 import { summaryRangeStore } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
 import { theme } from "../../src/theme";
@@ -42,11 +42,11 @@ export default function ReportsScreen() {
     smartPaydays,
   });
   const userId = user?.id ?? "anonymous";
-  const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]) ?? EMPTY_CATEGORIES;
+  const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
   const transactionCacheId = transactionScopeKey(userId, `reports:${range.key}`);
-  const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]) ?? EMPTY_TRANSACTIONS;
+  const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]);
   const predictionHistoryCacheId = transactionScopeKey(userId, "prediction-history");
-  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]) ?? EMPTY_TRANSACTIONS;
+  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]);
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "reports", range.key],
     queryFn: async () => {
@@ -58,7 +58,7 @@ export default function ReportsScreen() {
         offlineCacheStore.getState().setTransactions(transactionCacheId, transactions);
         return transactions;
       } catch (error) {
-        if (cachedTransactions.length > 0) {
+        if (cachedTransactions) {
           return cachedTransactions;
         }
         throw error;
@@ -73,7 +73,7 @@ export default function ReportsScreen() {
         offlineCacheStore.getState().setCategories(userId, categories);
         return categories;
       } catch (error) {
-        if (cachedCategories.length > 0) {
+        if (cachedCategories) {
           return cachedCategories;
         }
         throw error;
@@ -88,7 +88,7 @@ export default function ReportsScreen() {
         offlineCacheStore.getState().setTransactions(predictionHistoryCacheId, transactions);
         return transactions;
       } catch (error) {
-        if (cachedPredictionHistory.length > 0) {
+        if (cachedPredictionHistory) {
           return cachedPredictionHistory;
         }
         throw error;
@@ -301,12 +301,11 @@ function describeStat(label: string) {
 
 function ForecastChart({ transactions, projected, currency, range }: { transactions: Transaction[]; projected: number; currency: string; range: ResolvedSummaryRange }) {
   const { actualPoints, projectedPoints, currentPoint, spent, points } = buildForecastChart(transactions, projected, range);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [chartWidth, setChartWidth] = useState(520);
-  const selectedPoint = selectedDay === null ? undefined : points.find((point) => point.day === selectedDay);
+  const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
+  const selectedPoint = selectedPointIndex === null ? undefined : points[selectedPointIndex];
   // Reserve enough room for both axis labels on narrow screens. The end
   // label yields before their text boxes can touch.
-  const showEndAxisLabel = currentPoint.day < points.length && currentPoint.x < 400;
+  const showEndAxisLabel = currentPoint.index < points.length - 1 && currentPoint.x < 400;
   const selectNearestPoint = (event: any) => {
     const bounds = event?.currentTarget?.getBoundingClientRect?.();
     const clientX = Number(event?.nativeEvent?.clientX);
@@ -321,11 +320,14 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
     // clientX relative to the chart bounds is stable at every responsive
     // width. The remaining paths retain tap support on native platforms.
     const chartX = hasClientCoordinates || hasOffsetX
-      ? (rawX / Math.max(bounds?.width ?? chartWidth, 1)) * 520
+      ? (rawX / Math.max(bounds?.width ?? 520, 1)) * 520
       : rawX;
-    const day = Math.round(1 + ((chartX - 24) / 476) * Math.max(points.length - 1, 1));
-    setSelectedDay(Math.max(1, Math.min(points.length, day)));
+    const index = Math.round(((chartX - 24) / 476) * Math.max(points.length - 1, 1));
+    setSelectedPointIndex(Math.max(0, Math.min(points.length - 1, index)));
   };
+  const chartInteractionProps = Platform.OS === "web"
+    ? ({ onMouseMove: selectNearestPoint, onClick: selectNearestPoint } as any)
+    : ({ onPress: selectNearestPoint } as any);
 
   return (
     <View style={styles.forecastChart}>
@@ -345,8 +347,7 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
         width="100%"
         height={158}
         viewBox="0 0 520 158"
-        onLayout={(event) => setChartWidth(event.nativeEvent.layout.width)}
-        {...(Platform.OS === "web" ? ({ onMouseLeave: () => setSelectedDay(null) } as any) : {})}
+        {...(Platform.OS === "web" ? ({ onMouseLeave: () => setSelectedPointIndex(null) } as any) : {})}
       >
         <Line x1="24" y1="132" x2="500" y2="132" stroke={theme.colors.border} strokeWidth="1" />
         {selectedPoint ? <Line x1={selectedPoint.x} y1="16" x2={selectedPoint.x} y2="132" stroke={theme.colors.border} strokeDasharray="4 5" /> : null}
@@ -359,7 +360,7 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
             <ForecastPointTooltip point={selectedPoint} currency={currency} />
           </>
         ) : null}
-        <Rect x="0" y="0" width="520" height="158" fill="transparent" onPress={selectNearestPoint} {...(Platform.OS === "web" ? ({ onMouseMove: selectNearestPoint } as any) : {})} />
+        <Rect x="0" y="0" width="520" height="158" fill="transparent" {...chartInteractionProps} />
       </Svg>
       <View style={styles.forecastAxis}>
         <Text style={[styles.statSubvalue, styles.axisStart]}>Start</Text>
@@ -372,86 +373,129 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
   );
 }
 
+type ForecastBucket = {
+  start: Date;
+  end: Date;
+  label: string;
+};
+
 function buildForecastChart(transactions: Transaction[], projected: number, range: ResolvedSummaryRange) {
-  const latestMonth = transactions.reduce<string>(
-    (latest, transaction) => (transaction.occurredAt.slice(0, 7) > latest ? transaction.occurredAt.slice(0, 7) : latest),
-    "",
-  );
-  const monthDate = range.from ? new Date(range.from) : new Date(`${latestMonth || new Date().toISOString().slice(0, 7)}-01T00:00:00`);
-  const rangeEnd = range.forecastTo ? new Date(range.forecastTo) : new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999);
-  const daysInMonth = Math.max(1, Math.ceil((rangeEnd.getTime() - monthDate.getTime()) / 86400000) + 1);
-  const now = new Date();
-  const observedEnd = range.to ? new Date(range.to) : now;
-  const currentDay = Math.max(1, Math.min(daysInMonth, Math.ceil((Math.min(now.getTime(), observedEnd.getTime()) - monthDate.getTime()) / 86400000) + 1));
-  const dailyTotals = new Map<number, number>();
+  const earliestTransaction = transactions.reduce<Date | null>((earliest, transaction) => {
+    const date = new Date(transaction.occurredAt);
+    return !earliest || date < earliest ? date : earliest;
+  }, null);
+  const rangeStart = startOfChartDay(range.from ? new Date(range.from) : earliestTransaction ?? new Date());
+  const rangeEnd = range.forecastTo ? new Date(range.forecastTo) : endOfChartDay(new Date());
+  const observedEnd = new Date(Math.min((range.to ? new Date(range.to) : new Date()).getTime(), rangeEnd.getTime()));
+  const bucketUnit = chartBucketUnit(rangeStart, rangeEnd);
+  const buckets = buildChartBuckets(rangeStart, rangeEnd, bucketUnit);
+  const totals = new Map<number, number>();
 
   for (const transaction of transactions) {
     const occurredAt = new Date(transaction.occurredAt);
-    if (occurredAt < monthDate || occurredAt > observedEnd) {
-      continue;
-    }
-    const day = Math.floor((occurredAt.getTime() - monthDate.getTime()) / 86400000) + 1;
-    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + transaction.amount);
+    if (transaction.kind !== "expense" || transaction.deletedAt !== null || occurredAt < rangeStart || occurredAt > observedEnd) continue;
+    const index = buckets.findIndex((bucket) => occurredAt >= bucket.start && occurredAt <= bucket.end);
+    if (index >= 0) totals.set(index, (totals.get(index) ?? 0) + transaction.amount);
   }
 
-  const spent = Array.from(dailyTotals.values()).reduce((total, amount) => total + amount, 0);
-  const maxValue = Math.max(projected, spent, 1);
-  const xForDay = (day: number) => 24 + ((day - 1) / Math.max(daysInMonth - 1, 1)) * 476;
+  const spent = Array.from(totals.values()).reduce((total, amount) => total + amount, 0);
+  const observedIndexes = buckets.map((bucket, index) => (bucket.start <= observedEnd ? index : -1)).filter((index) => index >= 0);
+  const lastObservedIndex = observedIndexes[observedIndexes.length - 1] ?? 0;
+  const futureCount = Math.max(0, buckets.length - lastObservedIndex - 1);
+  const projectedPerFutureBucket = futureCount > 0 ? Math.max(0, projected - spent) / futureCount : 0;
+  const values = buckets.map((bucket, index) => bucket.start <= observedEnd ? (totals.get(index) ?? 0) : projectedPerFutureBucket);
+  const maxValue = Math.max(...values, 1);
+  const xForIndex = (index: number) => 24 + (index / Math.max(buckets.length - 1, 1)) * 476;
   const yForAmount = (amount: number) => 132 - (amount / maxValue) * 106;
-  let runningTotal = 0;
-  const actual = [] as string[];
-  const prediction = [] as string[];
-  const points: Array<{ day: number; x: number; y: number; actualY: number; projectedY: number; actual: number | null; projected: number; hasActivity: boolean }> = [];
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    if (day <= currentDay) {
-      runningTotal += dailyTotals.get(day) ?? 0;
-      actual.push(`${xForDay(day)},${yForAmount(runningTotal)}`);
-    }
-    const dayProjection = day <= currentDay
-      ? runningTotal
-      : spent + ((projected - spent) / Math.max(daysInMonth - currentDay, 1)) * (day - currentDay);
-    if (day >= currentDay) {
-      prediction.push(`${xForDay(day)},${yForAmount(dayProjection)}`);
-    }
-    points.push({
-      day,
-      x: xForDay(day),
-      y: yForAmount(day <= currentDay ? runningTotal : dayProjection),
-      actualY: yForAmount(runningTotal),
-      projectedY: yForAmount(dayProjection),
-      actual: day <= currentDay ? runningTotal : null,
-      projected: dayProjection,
-      hasActivity: dailyTotals.has(day),
-    });
-  }
+  const actual = buckets
+    .map((bucket, index) => bucket.start <= observedEnd ? `${xForIndex(index)},${yForAmount(totals.get(index) ?? 0)}` : null)
+    .filter(Boolean) as string[];
+  const prediction = buckets
+    .map((bucket, index) => index >= lastObservedIndex ? `${xForIndex(index)},${yForAmount(values[index])}` : null)
+    .filter(Boolean) as string[];
+  const points = buckets.map((bucket, index) => {
+    const actualValue = bucket.start <= observedEnd ? (totals.get(index) ?? 0) : null;
+    const projectedValue = values[index];
+    return {
+      index,
+      label: bucket.label,
+      x: xForIndex(index),
+      actualY: yForAmount(actualValue ?? projectedValue),
+      projectedY: yForAmount(projectedValue),
+      actual: actualValue,
+      projected: projectedValue,
+    };
+  });
 
   return {
     actualPoints: actual.join(" "),
     projectedPoints: prediction.join(" "),
-    currentPoint: { day: currentDay, x: xForDay(currentDay) },
+    currentPoint: { index: lastObservedIndex, x: xForIndex(lastObservedIndex) },
     spent,
     points,
   };
+}
+
+function chartBucketUnit(start: Date, end: Date) {
+  const durationDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000) + 1);
+  if (durationDays <= 62) return "day" as const;
+  if (durationDays <= 730) return "month" as const;
+  return "year" as const;
+}
+
+function buildChartBuckets(start: Date, end: Date, unit: "day" | "month" | "year"): ForecastBucket[] {
+  const buckets: ForecastBucket[] = [];
+  let cursor = unit === "day"
+    ? startOfChartDay(start)
+    : unit === "month"
+      ? new Date(start.getFullYear(), start.getMonth(), 1)
+      : new Date(start.getFullYear(), 0, 1);
+  const formatter = new Intl.DateTimeFormat(undefined, unit === "day"
+    ? { month: "short", day: "numeric" }
+    : unit === "month"
+      ? { month: "short", year: "numeric" }
+      : { year: "numeric" });
+
+  while (cursor <= end) {
+    const next = unit === "day"
+      ? new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1)
+      : unit === "month"
+        ? new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+        : new Date(cursor.getFullYear() + 1, 0, 1);
+    buckets.push({ start: new Date(cursor), end: new Date(Math.min(end.getTime(), next.getTime() - 1)), label: formatter.format(cursor) });
+    cursor = next;
+  }
+  return buckets;
+}
+
+function startOfChartDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfChartDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 }
 
 function ForecastPointTooltip({
   point,
   currency,
 }: {
-  point: { x: number; actualY: number; projectedY: number; actual: number | null; projected: number };
+  point: { label: string; x: number; actualY: number; projectedY: number; actual: number | null; projected: number };
   currency: string;
 }) {
   const value = point.actual ?? point.projected;
   const pointY = point.actual === null ? point.projectedY : point.actualY;
   const tooltipWidth = 108;
   const tooltipX = Math.max(8, Math.min(404, point.x - tooltipWidth / 2));
-  const tooltipY = pointY < 48 ? pointY + 12 : pointY - 42;
+  const tooltipY = pointY < 58 ? pointY + 12 : pointY - 52;
 
   return (
     <>
-      <Rect x={tooltipX} y={tooltipY} width={tooltipWidth} height="30" rx="8" fill={theme.colors.card} />
-      <SvgText x={tooltipX + tooltipWidth / 2} y={tooltipY + 20} fill={theme.colors.ink} fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="13" fontWeight="700" textAnchor="middle">
+      <Rect x={tooltipX} y={tooltipY} width={tooltipWidth} height="40" rx="8" fill={theme.colors.card} />
+      <SvgText x={tooltipX + tooltipWidth / 2} y={tooltipY + 15} fill={theme.colors.muted} fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="11" fontWeight="600" textAnchor="middle">
+        {point.label}
+      </SvgText>
+      <SvgText x={tooltipX + tooltipWidth / 2} y={tooltipY + 31} fill={theme.colors.ink} fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="13" fontWeight="700" textAnchor="middle">
         {formatMoney(value, currency)}
       </SvgText>
     </>

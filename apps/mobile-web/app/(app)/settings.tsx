@@ -3,13 +3,16 @@ import { useEffect, useState } from "react";
 import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { InstallPanel } from "../../src/components/install-panel";
+import { usePwaInstallContext } from "../../src/hooks/use-pwa-install";
 import { ScreenContainer } from "../../src/components/layout";
 import { TransferOutPanel } from "../../src/components/transfer-session";
 import { api } from "../../src/lib/api";
-import { appearanceStore } from "../../src/state/appearance";
+import { nanoid } from "nanoid/non-secure";
+import { appearanceStore, getAppearanceProfileKey } from "../../src/state/appearance";
 import { summaryRangeStore, type SummaryRangeMode } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
-import { theme } from "../../src/theme";
+import { offlineQueueStore } from "../../src/state/offline-queue";
+import { normalizeCustomAccent, theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
 
 const rangeModes: Array<{ key: SummaryRangeMode; label: string }> = [
@@ -24,9 +27,15 @@ const rangeModes: Array<{ key: SummaryRangeMode; label: string }> = [
 export default function SettingsScreen() {
   const { width } = useWindowDimensions();
   const user = sessionStore((state) => state.user);
-  const appearanceMode = appearanceStore((state) => state.mode);
-  const setAppearanceMode = appearanceStore((state) => state.setMode);
+  const { isInstalled } = usePwaInstallContext();
   const activeProfile = sessionStore((state) => state.activeProfile);
+  const appearanceProfileKey = getAppearanceProfileKey(activeProfile, user?.id);
+  const appearanceMode = appearanceStore((state) => state.getMode(appearanceProfileKey));
+  const setAppearanceMode = appearanceStore((state) => state.setMode);
+  const customAccent = appearanceStore((state) => state.getAccent(appearanceProfileKey));
+  const setAppearanceAccent = appearanceStore((state) => state.setAccent);
+  const customSecondaryAccent = appearanceStore((state) => state.getSecondaryAccent(appearanceProfileKey));
+  const setAppearanceSecondaryAccent = appearanceStore((state) => state.setSecondaryAccent);
   const deviceProfile = sessionStore((state) => state.deviceProfile);
   const linkedProfiles = sessionStore((state) => state.linkedProfiles);
   const activeLinkedProfileUserId = sessionStore((state) => state.activeLinkedProfileUserId);
@@ -35,6 +44,7 @@ export default function SettingsScreen() {
   const activateProfile = sessionStore((state) => state.activateProfile);
   const removeLinkedProfile = sessionStore((state) => state.removeLinkedProfile);
   const clearSession = sessionStore((state) => state.clearSession);
+  const enqueue = offlineQueueStore((state) => state.enqueue);
   const summaryMode = summaryRangeStore((state) => state.mode);
   const customFrom = summaryRangeStore((state) => state.customFrom);
   const customTo = summaryRangeStore((state) => state.customTo);
@@ -43,6 +53,9 @@ export default function SettingsScreen() {
   const setCustomRange = summaryRangeStore((state) => state.setCustomRange);
   const setSmartPaydays = summaryRangeStore((state) => state.setSmartPaydays);
   const [currencyDraft, setCurrencyDraft] = useState(user?.currency ?? "USD");
+  const [accentDraft, setAccentDraft] = useState(customAccent ?? "");
+  const [secondaryAccentDraft, setSecondaryAccentDraft] = useState(customSecondaryAccent ?? "");
+  const [accentError, setAccentError] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isOwnItModalOpen, setIsOwnItModalOpen] = useState(false);
   const [pendingForgetProfileId, setPendingForgetProfileId] = useState<string | null>(null);
@@ -50,6 +63,12 @@ export default function SettingsScreen() {
   useEffect(() => {
     setCurrencyDraft(user?.currency ?? "USD");
   }, [user?.currency]);
+
+  useEffect(() => {
+    setAccentDraft(customAccent ?? "");
+    setSecondaryAccentDraft(customSecondaryAccent ?? "");
+    setAccentError(null);
+  }, [appearanceProfileKey, customAccent, customSecondaryAccent]);
 
   useEffect(() => {
     setIsImportModalOpen(false);
@@ -79,6 +98,42 @@ export default function SettingsScreen() {
       setIsOwnItModalOpen(false);
     },
   });
+
+  function isOfflineOrNetworkError(error?: unknown) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      return true;
+    }
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    return message.includes("network") || message.includes("fetch");
+  }
+
+  function queuePreferenceUpdate(data: Parameters<typeof api.updateMe>[0]) {
+    if (user) {
+      setUser({ ...user, ...data });
+    }
+    enqueue({
+      id: nanoid(),
+      userId: user?.id ?? "anonymous",
+      entity: "preferences",
+      action: "update",
+      payload: data,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async function handlePreferenceUpdate(data: Parameters<typeof api.updateMe>[0]) {
+    if (isOfflineOrNetworkError()) {
+      queuePreferenceUpdate(data);
+      return;
+    }
+    try {
+      await updatePreferences.mutateAsync(data);
+    } catch (error) {
+      if (isOfflineOrNetworkError(error)) {
+        queuePreferenceUpdate(data);
+      }
+    }
+  }
 
   const loginMode = activeProfile === "linked" ? "Sync Code" : "Device-ID";
   const hasLinkedProfiles = linkedProfiles.length > 0;
@@ -141,7 +196,7 @@ export default function SettingsScreen() {
                   if (currencyDraft.trim().length !== 3 || updatePreferences.isPending) {
                     return;
                   }
-                  updatePreferences.mutate({ currency: currencyDraft });
+                  void handlePreferenceUpdate({ currency: currencyDraft });
                 }}
               />
             </View>
@@ -157,9 +212,11 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
       </Card>
-      <Card>
-        <InstallPanel />
-      </Card>
+      {!isInstalled ? (
+        <Card>
+          <InstallPanel />
+        </Card>
+      ) : null}
 
       <Card>
         <SectionTitle
@@ -215,24 +272,113 @@ export default function SettingsScreen() {
       <Card>
         <SectionTitle
           title="Appearance"
-          subtitle="Choose whether the app follows your device theme or stays in a fixed mode."
+          subtitle="Choose the scheme plus optional primary and secondary colors for this profile."
         />
         <View style={styles.rangeModeRow}>
           <PillButton
             label="Device"
             tone={appearanceMode === "device" ? "primary" : "ghost"}
-            onPress={() => setAppearanceMode("device")}
+            onPress={() => setAppearanceMode(appearanceProfileKey, "device")}
           />
           <PillButton
             label="Light"
             tone={appearanceMode === "light" ? "primary" : "ghost"}
-            onPress={() => setAppearanceMode("light")}
+            onPress={() => setAppearanceMode(appearanceProfileKey, "light")}
           />
           <PillButton
             label="Dark"
             tone={appearanceMode === "dark" ? "primary" : "ghost"}
-            onPress={() => setAppearanceMode("dark")}
+            onPress={() => setAppearanceMode(appearanceProfileKey, "dark")}
           />
+        </View>
+        <View style={styles.accentEditor}>
+          <Text style={styles.label}>Custom colors</Text>
+          <View style={styles.colorEditorRow}>
+            <Text style={styles.colorLabel}>Primary</Text>
+            <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(accentDraft) ?? theme.colors.accent }]}>
+              <TextInput
+                value={normalizeCustomAccent(accentDraft) ?? "#0F766E"}
+                onChangeText={(value) => {
+                  setAccentDraft(value.toUpperCase().slice(0, 7));
+                  setAccentError(null);
+                }}
+                style={styles.colorPicker}
+                {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Primary color" } as any) : {})}
+              />
+            </View>
+            <TextInput
+              value={accentDraft}
+              onChangeText={(value) => {
+                setAccentDraft(value.toUpperCase().slice(0, 7));
+                setAccentError(null);
+              }}
+              placeholder="#0F766E"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={7}
+              style={styles.accentInput}
+            />
+          </View>
+          <View style={styles.colorEditorRow}>
+            <Text style={styles.colorLabel}>Secondary</Text>
+            <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(secondaryAccentDraft) ?? theme.colors.accentSoft }]}>
+              <TextInput
+                value={normalizeCustomAccent(secondaryAccentDraft) ?? "#D9F3EF"}
+                onChangeText={(value) => {
+                  setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
+                  setAccentError(null);
+                }}
+                style={styles.colorPicker}
+                {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Secondary color" } as any) : {})}
+              />
+            </View>
+            <TextInput
+              value={secondaryAccentDraft}
+              onChangeText={(value) => {
+                setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
+                setAccentError(null);
+              }}
+              placeholder="#D9F3EF"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={7}
+              style={styles.accentInput}
+            />
+          </View>
+          <View style={styles.accentInputRow}>
+            <PillButton
+              label="Save colors"
+              tone="ghost"
+              onPress={() => {
+                const nextAccent = normalizeCustomAccent(accentDraft);
+                const nextSecondaryAccent = normalizeCustomAccent(secondaryAccentDraft);
+                if (!nextAccent || !nextSecondaryAccent) {
+                  setAccentError("Enter two 6-digit hex colors, for example #7C3AED and #EDE9FE.");
+                  return;
+                }
+                setAppearanceAccent(appearanceProfileKey, nextAccent);
+                setAppearanceSecondaryAccent(appearanceProfileKey, nextSecondaryAccent);
+                setAccentDraft(nextAccent);
+                setSecondaryAccentDraft(nextSecondaryAccent);
+                setAccentError(null);
+              }}
+            />
+          </View>
+          {customAccent || customSecondaryAccent ? (
+            <PillButton
+              label="Use theme default"
+              tone="ghost"
+              onPress={() => {
+                setAppearanceAccent(appearanceProfileKey, null);
+                setAppearanceSecondaryAccent(appearanceProfileKey, null);
+                setAccentDraft("");
+                setSecondaryAccentDraft("");
+                setAccentError(null);
+              }}
+            />
+          ) : null}
+          {accentError ? <Text style={styles.error}>{accentError}</Text> : null}
+          <Text style={styles.helperText}>Primary changes buttons and highlights. Secondary changes soft selected and supporting surfaces.</Text>
         </View>
       </Card>
 
@@ -444,6 +590,64 @@ const styles = StyleSheet.create({
   rangeEditor: {
     gap: 10,
   },
+  accentEditor: {
+    gap: 10,
+  },
+  accentInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  colorEditorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  colorLabel: {
+    color: theme.colors.muted,
+    fontWeight: "700",
+    width: 76,
+  },
+  accentPreview: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  colorPreview: {
+    width: 42,
+    height: 36,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.sm,
+    overflow: "hidden",
+  },
+  colorPicker: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    padding: 0,
+    opacity: 0,
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+  },
+  accentInput: {
+    width: 120,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: theme.colors.field,
+    color: theme.colors.ink,
+    fontSize: 16,
+    fontWeight: "700",
+    ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent" } as any) : {}),
+  },
   rangeField: {
     gap: 6,
   },
@@ -539,7 +743,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   secondaryButtonText: {
-    color: theme.colors.accent,
+    color: theme.colors.accentSoftText,
     fontWeight: "700",
   },
   primaryButton: {
@@ -549,7 +753,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   primaryButtonText: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
     fontWeight: "700",
   },
   dangerButton: {

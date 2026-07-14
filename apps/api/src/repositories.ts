@@ -206,6 +206,8 @@ export function createTransaction(userId: string, input: unknown): Transaction {
     return mapTransaction(duplicate);
   }
 
+  assertActiveExpenseCategory(userId, parsed.categoryId);
+
   const now = new Date().toISOString();
   const row: TransactionRow = {
     id: nanoid(),
@@ -241,6 +243,9 @@ export function updateTransaction(userId: string, transactionId: string, input: 
   if (!current || current.deleted_at) {
     throw new Error("Transaction not found");
   }
+  if (parsed.categoryId !== undefined) {
+    assertActiveExpenseCategory(userId, parsed.categoryId);
+  }
 
   const row: TransactionRow = {
     ...current,
@@ -264,7 +269,7 @@ export function updateTransaction(userId: string, transactionId: string, input: 
     user_id: row.user_id,
     category_id: row.category_id,
     amount: row.amount,
-    kind: row.kind,
+    kind: "expense",
     occurred_at: row.occurred_at,
     note: row.note,
     merchant: row.merchant,
@@ -295,6 +300,9 @@ export function getBudgets(userId: string, month: string): Budget[] {
 
 export function upsertBudget(userId: string, input: BudgetUpsertInput): Budget {
   const parsed = budgetUpsertInputSchema.parse(input);
+  if (parsed.categoryId) {
+    assertActiveExpenseCategory(userId, parsed.categoryId);
+  }
   const now = new Date().toISOString();
   const existing = db
     .prepare(
@@ -337,6 +345,15 @@ export function upsertBudget(userId: string, input: BudgetUpsertInput): Budget {
   }
 
   return mapBudget(row);
+}
+
+function assertActiveExpenseCategory(userId: string, categoryId: string) {
+  const category = db
+    .prepare("SELECT id FROM categories WHERE id = ? AND user_id = ? AND archived = 0 AND kind = 'expense'")
+    .get(categoryId, userId) as { id: string } | undefined;
+  if (!category) {
+    throw new Error("Category not found");
+  }
 }
 
 export function getMonthlyReport(userId: string, month: string): MonthlyReport {
@@ -639,7 +656,7 @@ function mapCategory(row: CategoryRow): Category {
     id: row.id,
     userId: row.user_id,
     name: row.name,
-    kind: row.kind,
+    kind: "expense",
     color: row.color,
     icon: row.icon,
     isSystem: Boolean(row.is_system),
@@ -656,7 +673,7 @@ function mapTransaction(row: TransactionRow): Transaction {
     userId: row.user_id,
     categoryId: row.category_id,
     amount: row.amount,
-    kind: row.kind,
+    kind: "expense",
     occurredAt: row.occurred_at,
     note: row.note,
     merchant: row.merchant,

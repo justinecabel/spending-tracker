@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { darkPalette, lightPalette } from "../theme";
 import { capturePwaStorageHandoff, requestPersistentStorage } from "../lib/storage";
 
 type InstallChoice = {
@@ -16,6 +15,10 @@ type PwaInstallState = {
   canInstall: boolean;
   isInstalled: boolean;
   install: () => Promise<boolean>;
+};
+
+type PwaTheme = {
+  surface: string;
 };
 
 const unavailableInstall = async () => false;
@@ -35,7 +38,8 @@ declare global {
   }
 }
 
-export function usePwaInstall() {
+export function usePwaInstall(pwaTheme: PwaTheme = { surface: "#FFFDF8" }) {
+  const { surface } = pwaTheme;
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
@@ -44,8 +48,14 @@ export function usePwaInstall() {
       return;
     }
 
-    ensureManifest();
-    ensureMetaTags();
+    ensureMetaTags(surface);
+  }, [surface]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
     capturePwaStorageHandoff();
     void requestPersistentStorage();
     const displayMode = window.matchMedia?.("(display-mode: standalone)");
@@ -83,6 +93,10 @@ export function usePwaInstall() {
       return false;
     }
 
+    if (typeof document !== "undefined") {
+      ensureMetaTags(surface);
+    }
+
     // Capture the current signed-in session, device ID, saved profiles, and
     // other app data immediately before the browser creates the PWA window.
     capturePwaStorageHandoff();
@@ -93,7 +107,7 @@ export function usePwaInstall() {
     }
     setInstallPrompt(null);
     return result.outcome === "accepted";
-  }, [installPrompt]);
+  }, [installPrompt, surface]);
 
   return {
     canInstall: Boolean(installPrompt) && !isInstalled,
@@ -102,67 +116,17 @@ export function usePwaInstall() {
   };
 }
 
-function ensureManifest() {
-  const manifestId = "spending-tracker-manifest";
-  const iconUrl = new URL("spend-icon.svg?v=6", document.baseURI).toString();
-  ensureAppIcons(iconUrl);
-  if (document.getElementById(manifestId)) {
-    return;
-  }
-
-  const link = document.createElement("link");
-  link.id = manifestId;
-  link.rel = "manifest";
-  link.href = new URL("manifest.webmanifest?v=8", document.baseURI).toString();
-  document.head.appendChild(link);
-}
-
-function buildAppIconUrl() {
-  const iconSvg = encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-      <rect width="512" height="512" rx="120" fill="${lightPalette.accent}" />
-      <text x="256" y="320" text-anchor="middle" font-size="250">💸</text>
-    </svg>
-  `.trim());
-
-  return `data:image/svg+xml,${iconSvg}`;
-}
-
-function ensureAppIcons(iconUrl: string) {
-  for (const [id, rel] of [["spending-tracker-favicon", "icon"], ["spending-tracker-apple-icon", "apple-touch-icon"]] as const) {
-    let icon = document.getElementById(id) as HTMLLinkElement | null;
-    if (!icon) {
-      icon = document.createElement("link");
-      icon.id = id;
-      icon.rel = rel;
-      document.head.appendChild(icon);
-    }
-    icon.href = iconUrl;
-  }
-}
-
-function ensureMetaTags() {
-  setMeta("theme-color", currentWebPalette().card);
+function ensureMetaTags(surface: string) {
+  setMeta("theme-color", surface);
   setMeta("apple-mobile-web-app-capable", "yes");
   setMeta("apple-mobile-web-app-status-bar-style", "black-translucent");
-  setMeta("apple-mobile-web-app-title", "Spend");
-}
-
-function currentWebPalette() {
-  const selectedTheme = document.documentElement.dataset.theme;
-  if (selectedTheme === "dark") {
-    return darkPalette;
-  }
-
-  return lightPalette;
+  setMeta("apple-mobile-web-app-title", "Spending Tracker");
 }
 
 function setMeta(name: string, content: string) {
-  const id = `meta-${name}`;
-  let node = document.getElementById(id) as HTMLMetaElement | null;
+  let node = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
   if (!node) {
     node = document.createElement("meta");
-    node.id = id;
     node.name = name;
     document.head.appendChild(node);
   }

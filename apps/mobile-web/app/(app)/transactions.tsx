@@ -17,9 +17,11 @@ import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-
 import { offlineQueueStore } from "../../src/state/offline-queue";
 import { sessionStore } from "../../src/state/session";
 import { summaryRangeStore } from "../../src/state/summary-range";
+import { appShellStore } from "../../src/state/app-shell";
 import { resolveSummaryRange } from "../../src/lib/summary-range";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
+import { nanoid } from "nanoid/non-secure";
 
 function normalizeAmountInput(value: string) {
   const cleaned = value.replace(/[^\d.]/g, "");
@@ -30,6 +32,11 @@ function normalizeAmountInput(value: string) {
   return `${parts[0]}.${parts.slice(1).join("")}`;
 }
 
+function isNetworkError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return message.includes("network") || message.includes("fetch");
+}
+
 export default function TransactionsScreen() {
   const { width } = useWindowDimensions();
   const compactDateTime = width < 420;
@@ -37,6 +44,8 @@ export default function TransactionsScreen() {
   const drafts = draftTransactionsStore((state) => state.drafts);
   const removeDraftByClientId = draftTransactionsStore((state) => state.removeDraftByClientId);
   const removeQueuedMutationByClientId = offlineQueueStore((state) => state.removeByClientId);
+  const enqueue = offlineQueueStore((state) => state.enqueue);
+  const queuedMutations = offlineQueueStore((state) => state.mutations);
   const queryClient = useQueryClient();
   const userId = user?.id ?? "anonymous";
   const summaryMode = summaryRangeStore((state) => state.mode);
@@ -45,6 +54,9 @@ export default function TransactionsScreen() {
   const smartPaydays = summaryRangeStore((state) => state.smartPaydays);
   const range = resolveSummaryRange({ mode: summaryMode, customFrom, customTo, smartPaydays });
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  const transactionToView = appShellStore((state) => state.transactionToView);
+  const clearTransactionToView = appShellStore((state) => state.clearTransactionToView);
   const [amount, setAmount] = useState("");
   const [merchant, setMerchant] = useState("");
   const [note, setNote] = useState("");
@@ -60,13 +72,13 @@ export default function TransactionsScreen() {
   const categoriesQuery = useQuery({
     queryKey: ["categories", userId],
     queryFn: async () => {
-      const cached = offlineCacheStore.getState().categoriesByUser[userId] ?? [];
+      const cached = offlineCacheStore.getState().categoriesByUser[userId];
       try {
         const categories = await api.categories();
         offlineCacheStore.getState().setCategories(userId, categories);
         return categories;
       } catch (error) {
-        if (cached.length > 0) {
+        if (cached) {
           return cached;
         }
         throw error;
@@ -78,7 +90,7 @@ export default function TransactionsScreen() {
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "all", range.key],
     queryFn: async () => {
-      const cached = offlineCacheStore.getState().transactionsByScope[transactionCacheId] ?? [];
+      const cached = offlineCacheStore.getState().transactionsByScope[transactionCacheId];
       try {
         const transactions = await api.transactions({
           ...(range.from ? { from: range.from } : {}),
@@ -87,7 +99,7 @@ export default function TransactionsScreen() {
         offlineCacheStore.getState().setTransactions(transactionCacheId, transactions);
         return transactions;
       } catch (error) {
-        if (cached.length > 0) {
+        if (cached) {
           return cached;
         }
         throw error;
@@ -134,6 +146,81 @@ export default function TransactionsScreen() {
     ...(transactionsQuery.data ?? []),
   ].sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime());
 
+  function queueUpdate(id: string, data: Parameters<typeof api.updateTransaction>[1]) {
+    offlineCacheStore.getState().updateTransaction(userId, id, data);
+    enqueue({
+      id: nanoid(),
+      userId,
+      entity: "transaction",
+      action: "update",
+      payload: { id, data },
+      createdAt: new Date().toISOString(),
+    });
+    void queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    void queryClient.invalidateQueries({ queryKey: ["report"] });
+    void queryClient.invalidateQueries({ queryKey: ["reports"] });
+    setSelectedTransaction(null);
+  }
+
+  function queueDelete(id: string) {
+    offlineCacheStore.getState().removeTransaction(userId, id);
+    enqueue({
+      id: nanoid(),
+      userId,
+      entity: "transaction",
+      action: "delete",
+      payload: { id },
+      createdAt: new Date().toISOString(),
+    });
+    void queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    void queryClient.invalidateQueries({ queryKey: ["report"] });
+    void queryClient.invalidateQueries({ queryKey: ["reports"] });
+    setPendingDeleteTransaction(null);
+  }
+
+  async function handleUpdate(id: string, data: Parameters<typeof api.updateTransaction>[1]) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      queueUpdate(id, data);
+      return;
+    }
+
+    try {
+      await updateMutation.mutateAsync({ id, data });
+    } catch (error) {
+      if (isNetworkError(error)) {
+        queueUpdate(id, data);
+      }
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      queueDelete(id);
+      return;
+    }
+
+    try {
+      await deleteMutation.mutateAsync(id);
+      setPendingDeleteTransaction(null);
+    } catch (error) {
+      if (isNetworkError(error)) {
+        queueDelete(id);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!transactionToView) {
+      return;
+    }
+
+    const transaction = transactions.find((item) => item.id === transactionToView);
+    if (transaction) {
+      setViewingTransaction(transaction);
+      clearTransactionToView();
+    }
+  }, [clearTransactionToView, transactionToView, transactions]);
+
   useEffect(() => {
     if (!selectedTransaction) {
       return;
@@ -178,16 +265,16 @@ export default function TransactionsScreen() {
           ) : (
             transactions.map((transaction, index, items) => {
             const isDraft = transaction.id.startsWith("client-");
+            const isPendingSync = isDraft || queuedMutations.some((mutation) => {
+              const payload = mutation.payload as { id?: string; clientId?: string };
+              return payload.id === transaction.id || payload.clientId === transaction.id;
+            });
 
             return (
-              <View key={transaction.id} style={[styles.row, isDraft && styles.pendingRow, index === items.length - 1 && styles.rowLast]}>
+              <View key={transaction.id} style={[styles.row, isPendingSync && styles.pendingRow, index === items.length - 1 && styles.rowLast]}>
                 <Pressable
                   style={styles.rowInfo}
-                  onPress={() => {
-                    if (!isDraft) {
-                      openEditor(transaction);
-                    }
-                  }}
+                  onPress={() => setViewingTransaction(transaction)}
                 >
                   <Text style={styles.title}>{transaction.merchant ?? transaction.note ?? "Transaction"}</Text>
                   <Text style={styles.meta}>
@@ -195,7 +282,7 @@ export default function TransactionsScreen() {
                       formatDateTimeLabel(transaction.occurredAt),
                       categoryNameById.get(transaction.categoryId),
                       transaction.kind,
-                      isDraft ? "Pending sync" : null,
+                      isPendingSync ? "Pending sync" : null,
                     ]
                       .filter(Boolean)
                       .join(" · ")}
@@ -214,6 +301,34 @@ export default function TransactionsScreen() {
           )}
         </View>
       </Card>
+
+      <Modal transparent visible={Boolean(viewingTransaction)} animationType="fade" onRequestClose={() => setViewingTransaction(null)}>
+        <View style={styles.modalScrim}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{viewingTransaction?.merchant ?? viewingTransaction?.note ?? "Transaction"}</Text>
+            <Text style={styles.detailAmount}>{viewingTransaction ? formatMoney(viewingTransaction.amount, user?.currency ?? "USD") : ""}</Text>
+            <View style={styles.detailList}>
+              <Text style={styles.detailText}>Date: {viewingTransaction ? formatDateTimeLabel(viewingTransaction.occurredAt) : ""}</Text>
+              <Text style={styles.detailText}>Category: {viewingTransaction ? categoryNameById.get(viewingTransaction.categoryId) ?? "Uncategorized" : ""}</Text>
+              <Text style={styles.detailText}>Type: {viewingTransaction?.kind ?? "expense"}</Text>
+              {viewingTransaction?.note ? <Text style={styles.detailText}>Note: {viewingTransaction.note}</Text> : null}
+              {viewingTransaction?.id.startsWith("client-") ? <Text style={styles.detailText}>Status: Pending sync</Text> : null}
+            </View>
+            <View style={styles.modalActions}>
+              <PillButton label="Close" tone="ghost" onPress={() => setViewingTransaction(null)} />
+              {viewingTransaction && !viewingTransaction.id.startsWith("client-") ? (
+                <PillButton
+                  label="Edit"
+                  onPress={() => {
+                    openEditor(viewingTransaction);
+                    setViewingTransaction(null);
+                  }}
+                />
+              ) : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal transparent visible={Boolean(selectedTransaction)} animationType="fade" onRequestClose={() => setSelectedTransaction(null)}>
         <View style={styles.modalScrim}>
@@ -303,15 +418,12 @@ export default function TransactionsScreen() {
                   if (!selectedTransaction || !Number(amount) || !categoryId) {
                     return;
                   }
-                  updateMutation.mutate({
-                    id: selectedTransaction.id,
-                    data: {
+                  void handleUpdate(selectedTransaction.id, {
                       amount: Number(amount),
                       merchant: merchant || null,
                       note: note || null,
                       categoryId,
                       occurredAt: combineDateAndTime(dateValue, timeValue),
-                    },
                   });
                 }}
               />
@@ -349,11 +461,7 @@ export default function TransactionsScreen() {
                     return;
                   }
 
-                  deleteMutation.mutate(pendingDeleteTransaction.id, {
-                    onSuccess: () => {
-                      setPendingDeleteTransaction(null);
-                    },
-                  });
+                  void handleDelete(pendingDeleteTransaction.id);
                 }}
               />
             </View>
@@ -410,6 +518,18 @@ const styles = StyleSheet.create({
   amount: {
     fontWeight: "700",
     color: theme.colors.ink,
+  },
+  detailAmount: {
+    color: theme.colors.accent,
+    fontSize: 28,
+    fontWeight: "800",
+  },
+  detailList: {
+    gap: 8,
+  },
+  detailText: {
+    color: theme.colors.ink,
+    lineHeight: 21,
   },
   modalScrim: {
     flex: 1,
