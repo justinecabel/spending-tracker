@@ -1,7 +1,21 @@
 const APP_STORAGE_PREFIX = "spending-tracker-";
 const PWA_HANDOFF_KEY = "spending-tracker-pwa-handoff";
+const PWA_HANDOFF_APPLIED_KEY = "spending-tracker-pwa-handoff-applied";
 
 let pwaStoragePrepared = false;
+
+type PwaStorageHandoff = {
+  version?: number;
+  savedAt?: string;
+  data?: Record<string, string>;
+};
+
+function isStandalonePwa() {
+  return Boolean(
+    typeof window !== "undefined" &&
+      (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone),
+  );
+}
 
 /**
  * Some browsers expose the installed PWA as a separate storage container.
@@ -21,13 +35,24 @@ export function preparePwaStorage() {
       return;
     }
 
-    const handoff = JSON.parse(rawHandoff) as { data?: Record<string, string> };
+    if (!isStandalonePwa()) {
+      return;
+    }
+
+    const handoff = JSON.parse(rawHandoff) as PwaStorageHandoff;
+    const savedAt = handoff.savedAt ?? "";
+    const appliedAt = window.localStorage.getItem(PWA_HANDOFF_APPLIED_KEY) ?? "";
+    if (!savedAt || savedAt <= appliedAt) {
+      return;
+    }
+
     for (const [key, value] of Object.entries(handoff.data ?? {})) {
-      if (!key.startsWith(APP_STORAGE_PREFIX) || key === PWA_HANDOFF_KEY || window.localStorage.getItem(key) !== null) {
+      if (!key.startsWith(APP_STORAGE_PREFIX) || key === PWA_HANDOFF_KEY || key === PWA_HANDOFF_APPLIED_KEY) {
         continue;
       }
       window.localStorage.setItem(key, value);
     }
+    window.localStorage.setItem(PWA_HANDOFF_APPLIED_KEY, savedAt);
   } catch {
     // Storage can be unavailable in private browsing or restricted webviews.
   }
@@ -44,7 +69,7 @@ export function capturePwaStorageHandoff() {
     const data: Record<string, string> = {};
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
-      if (key?.startsWith(APP_STORAGE_PREFIX) && key !== PWA_HANDOFF_KEY) {
+      if (key?.startsWith(APP_STORAGE_PREFIX) && key !== PWA_HANDOFF_KEY && key !== PWA_HANDOFF_APPLIED_KEY) {
         const value = window.localStorage.getItem(key);
         if (value !== null) {
           data[key] = value;
