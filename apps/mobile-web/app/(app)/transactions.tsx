@@ -545,6 +545,9 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 460,
     alignSelf: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadow,
   },
   modalTitle: {
     color: theme.colors.ink,

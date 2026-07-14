@@ -228,6 +228,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
     padding: 20,
     gap: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadow,
   },
   modalTitle: {
     color: theme.colors.ink,

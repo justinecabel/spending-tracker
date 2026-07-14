@@ -267,6 +267,24 @@ export function TransactionForm({
                 />
               ))}
             </View>
+            <View style={styles.customColorField}>
+              <Text style={styles.colorInputLabel}>Custom Color hex</Text>
+              <View style={styles.customColorRow}>
+                <TextInput
+                  value={newCategoryColor}
+                  onChangeText={(value) => setNewCategoryColor(normalizeHexColor(value))}
+                  placeholder="#0F766E"
+                  style={[styles.input, styles.colorHexInput]}
+                  placeholderTextColor={theme.colors.muted}
+                  autoCapitalize="characters"
+                  maxLength={7}
+                />
+                <View
+                  accessibilityLabel="Custom category color preview"
+                  style={[styles.customColorPreview, { backgroundColor: isHexColor(newCategoryColor) ? newCategoryColor : theme.colors.field }]}
+                />
+              </View>
+            </View>
             {categoryError ? <Text style={styles.errorText}>{categoryError}</Text> : null}
             <View style={styles.modalActions}>
               <Pressable style={[styles.secondaryButton]} onPress={() => setIsCategoryModalOpen(false)}>
@@ -278,6 +296,10 @@ export function TransactionForm({
                   const trimmedName = newCategoryName.trim();
                   if (!trimmedName) {
                     setCategoryError("Category name is required.");
+                    return;
+                  }
+                  if (!isHexColor(newCategoryColor)) {
+                    setCategoryError("Use a six-digit color such as #0F766E.");
                     return;
                   }
 
@@ -357,6 +379,24 @@ export function TransactionForm({
                 />
               ))}
             </View>
+            <View style={styles.customColorField}>
+              <Text style={styles.colorInputLabel}>Custom Color hex</Text>
+              <View style={styles.customColorRow}>
+                <TextInput
+                  value={editingCategoryColor}
+                  onChangeText={(value) => setEditingCategoryColor(normalizeHexColor(value))}
+                  placeholder="#0F766E"
+                  style={[styles.input, styles.colorHexInput]}
+                  placeholderTextColor={theme.colors.muted}
+                  autoCapitalize="characters"
+                  maxLength={7}
+                />
+                <View
+                  accessibilityLabel="Custom category color preview"
+                  style={[styles.customColorPreview, { backgroundColor: isHexColor(editingCategoryColor) ? editingCategoryColor : theme.colors.field }]}
+                />
+              </View>
+            </View>
             {categoryError ? <Text style={styles.errorText}>{categoryError}</Text> : null}
             <View style={styles.modalActions}>
               <Pressable
@@ -394,6 +434,10 @@ export function TransactionForm({
                     setCategoryError("Category name is required.");
                     return;
                   }
+                  if (!isHexColor(editingCategoryColor)) {
+                    setCategoryError("Use a six-digit color such as #0F766E.");
+                    return;
+                  }
 
                   try {
                     setCategoryError(null);
@@ -420,6 +464,15 @@ export function TransactionForm({
       </Modal>
     </View>
   );
+}
+
+function normalizeHexColor(value: string) {
+  const normalized = value.trim().toUpperCase();
+  return normalized.startsWith("#") ? normalized : `#${normalized}`;
+}
+
+function isHexColor(value: string) {
+  return /^#[0-9A-F]{6}$/.test(value);
 }
 
 const styles = StyleSheet.create({
@@ -536,6 +589,9 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 460,
     alignSelf: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadow,
   },
   modalTitle: {
     color: theme.colors.ink,
@@ -545,6 +601,30 @@ const styles = StyleSheet.create({
   colorRow: {
     flexDirection: "row",
     gap: 10,
+  },
+  customColorField: {
+    gap: 6,
+  },
+  customColorRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  colorInputLabel: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  colorHexInput: {
+    flex: 1,
+    paddingVertical: 10,
+  },
+  customColorPreview: {
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    height: 42,
+    width: 42,
   },
   colorSwatch: {
     width: 28,

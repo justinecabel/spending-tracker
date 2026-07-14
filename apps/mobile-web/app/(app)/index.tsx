@@ -420,9 +420,8 @@ export default function DashboardScreen() {
             key={item.categoryId ?? item.categoryName}
             style={[styles.row, index === items.length - 1 && styles.rowLast]}
           >
-            <View>
+            <View style={styles.categoryName}>
               <Text style={styles.rowTitle}>{item.categoryName}</Text>
-              <Text style={styles.rowMetaPlaceholder}>.</Text>
             </View>
             <Text style={styles.rowAmount}>{formatMoney(item.total, user?.currency ?? "USD")}</Text>
           </View>
@@ -674,9 +673,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.colors.muted,
   },
-  rowMetaPlaceholder: {
-    fontSize: 13,
-    color: "transparent",
+  categoryName: {
+    flex: 1,
+    justifyContent: "center",
   },
   rowAmount: {
     fontSize: 16,

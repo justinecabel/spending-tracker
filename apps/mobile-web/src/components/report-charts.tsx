@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import type { MonthlyReport } from "@spending-tracker/shared";
 import { formatMoney } from "../lib/date";
 import { theme } from "../theme";
+import { WebPressable } from "./web-pressable";
 
 const chartPalette = ["#0F766E", "#F97316", "#2563EB", "#DC2626", "#7C3AED", "#0891B2"];
 
@@ -99,30 +100,18 @@ function ExpenseSharePieChart({ segments, currency }: { segments: ExpenseShareSe
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
   const activeSegment = activeSegmentIndex === null ? null : segments[activeSegmentIndex];
   const gradient = pieGradient(segments);
-
-  function selectSegment(event: unknown) {
-    const nativeEvent = (event as { nativeEvent?: { offsetX?: number; offsetY?: number; locationX?: number; locationY?: number } }).nativeEvent;
-    const x = nativeEvent?.offsetX ?? nativeEvent?.locationX;
-    const y = nativeEvent?.offsetY ?? nativeEvent?.locationY;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-
-    const angle = (Math.atan2(Number(y) - 92, Number(x) - 92) * 180) / Math.PI;
-    const normalizedAngle = (angle + 450) % 360;
-    let end = 0;
-    const index = segments.findIndex((segment) => {
-      end += segment.percentage * 360;
-      return normalizedAngle <= end;
-    });
-    setActiveSegmentIndex(index >= 0 ? index : null);
-  }
+  const selectionMask = activeSegmentIndex === null ? null : pieSelectionMask(segments, activeSegmentIndex);
 
   return (
     <View style={styles.pieChartWrap}>
       <View
         accessibilityLabel="Expense share pie chart"
-        style={[styles.pieHitArea, { backgroundImage: gradient } as any]}
-        {...({ onMouseMove: selectSegment, onMouseLeave: () => setActiveSegmentIndex(null) } as any)}
+        style={[
+          styles.pieHitArea,
+          { backgroundImage: gradient } as any,
+        ]}
       >
+        {selectionMask ? <View style={[styles.pieSelectionMask, { backgroundImage: selectionMask } as any]} /> : null}
         <View style={styles.pieCenter} />
       </View>
       <View style={styles.pieTooltip} accessibilityLiveRegion="polite">
@@ -136,9 +125,24 @@ function ExpenseSharePieChart({ segments, currency }: { segments: ExpenseShareSe
               </Text>
             </View>
           </>
-        ) : (
-          <Text style={styles.pieHint}>Hover or tap a slice for details</Text>
-        )}
+        ) : null}
+      </View>
+      <View style={styles.categoryControls} accessibilityLabel="Choose a category to highlight its share">
+        {segments.map((segment, index) => {
+          const selected = activeSegmentIndex === index;
+          return (
+            <WebPressable
+              key={segment.categoryId ?? segment.categoryName}
+              accessibilityRole="button"
+              onPress={() => setActiveSegmentIndex(selected ? null : index)}
+              style={[styles.categoryControl, selected && styles.categoryControlSelected]}
+            >
+              <View style={[styles.legendDot, { backgroundColor: segment.color }]} />
+              <Text style={styles.categoryControlLabel}>{segment.categoryName}</Text>
+              <Text style={styles.categoryControlValue}>{Math.round(segment.percentage * 100)}%</Text>
+            </WebPressable>
+          );
+        })}
       </View>
     </View>
   );
@@ -153,6 +157,12 @@ function pieGradient(segments: ExpenseShareSegment[]) {
     return stop;
   });
   return `conic-gradient(from -90deg, ${stops.join(", ")})`;
+}
+
+function pieSelectionMask(segments: ExpenseShareSegment[], index: number) {
+  const start = segments.slice(0, index).reduce((sum, segment) => sum + segment.percentage, 0) * 100;
+  const end = start + segments[index]!.percentage * 100;
+  return `conic-gradient(from -90deg, rgba(0, 0, 0, 0.34) 0% ${start}%, transparent ${start}% ${end}%, rgba(0, 0, 0, 0.34) ${end}% 100%)`;
 }
 
 const styles = StyleSheet.create({
@@ -184,6 +194,12 @@ const styles = StyleSheet.create({
     height: 64,
     width: 64,
   },
+  pieSelectionMask: {
+    borderRadius: 92,
+    height: 184,
+    position: "absolute",
+    width: 184,
+  },
   pieTooltip: {
     minHeight: 42,
     flexDirection: "row",
@@ -205,6 +221,37 @@ const styles = StyleSheet.create({
   pieHint: {
     color: theme.colors.muted,
     fontSize: 13,
+  },
+  categoryControls: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "center",
+  },
+  categoryControl: {
+    alignItems: "center",
+    backgroundColor: theme.colors.field,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  categoryControlSelected: {
+    backgroundColor: theme.colors.accentSoft,
+    borderColor: theme.colors.accent,
+  },
+  categoryControlLabel: {
+    color: theme.colors.ink,
+    fontWeight: "700",
+  },
+  categoryControlValue: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
   },
   legend: {
     display: "none",

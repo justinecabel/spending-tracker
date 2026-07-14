@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Modal, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, Line, Polyline, Rect } from "react-native-svg";
 import type { MonthlyReport, Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
@@ -306,6 +306,7 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
   // Reserve enough room for both axis labels on narrow screens. The end
   // label yields before their text boxes can touch.
   const showEndAxisLabel = currentPoint.index < points.length - 1 && currentPoint.x < 400;
+  const showStartAxisLabel = currentPoint.x > 70;
   const selectNearestPoint = (event: any) => {
     const bounds = event?.currentTarget?.getBoundingClientRect?.();
     const clientX = Number(event?.nativeEvent?.clientX);
@@ -343,27 +344,25 @@ function ForecastChart({ transactions, projected, currency, range }: { transacti
           <Text style={styles.legendText}>Projected</Text>
         </View>
       </View>
-      <Svg
-        width="100%"
-        height={158}
-        viewBox="0 0 520 158"
-        {...(Platform.OS === "web" ? ({ onMouseLeave: () => setSelectedPointIndex(null) } as any) : {})}
-      >
-        <Line x1="24" y1="132" x2="500" y2="132" stroke={theme.colors.border} strokeWidth="1" />
-        {selectedPoint ? <Line x1={selectedPoint.x} y1="16" x2={selectedPoint.x} y2="132" stroke={theme.colors.border} strokeDasharray="4 5" /> : null}
-        <Polyline points={projectedPoints} fill="none" stroke={theme.colors.warning} strokeWidth="3" strokeDasharray="7 6" />
-        <Polyline points={actualPoints} fill="none" stroke={theme.colors.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        {selectedPoint ? (
-          <>
-            {selectedPoint.actual !== null ? <Circle cx={selectedPoint.x} cy={selectedPoint.actualY} r="5" fill={theme.colors.accent} stroke={theme.colors.field} strokeWidth="2" /> : null}
-            {selectedPoint.actual === null ? <Circle cx={selectedPoint.x} cy={selectedPoint.projectedY} r="5" fill={theme.colors.warning} stroke={theme.colors.field} strokeWidth="2" /> : null}
-            <ForecastPointTooltip point={selectedPoint} currency={currency} />
-          </>
-        ) : null}
-        <Rect x="0" y="0" width="520" height="158" fill="transparent" {...chartInteractionProps} />
-      </Svg>
+      <View style={styles.forecastPlot}>
+        <Svg
+          width="100%"
+          height={158}
+          viewBox="0 0 520 158"
+          {...(Platform.OS === "web" ? ({ onMouseLeave: () => setSelectedPointIndex(null) } as any) : {})}
+        >
+          <Line x1="24" y1="132" x2="500" y2="132" stroke={theme.colors.border} strokeWidth="1" />
+          {selectedPoint ? <Line x1={selectedPoint.x} y1="16" x2={selectedPoint.x} y2="132" stroke={theme.colors.border} strokeDasharray="4 5" /> : null}
+          <Polyline points={projectedPoints} fill="none" stroke={theme.colors.warning} strokeWidth="3" strokeDasharray="7 6" />
+          <Polyline points={actualPoints} fill="none" stroke={theme.colors.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          {selectedPoint && selectedPoint.actual !== null ? <Circle cx={selectedPoint.x} cy={selectedPoint.actualY} r="6" fill={theme.colors.accent} stroke={theme.colors.field} strokeWidth="2" /> : null}
+          {selectedPoint && selectedPoint.actual === null ? <Circle cx={selectedPoint.x} cy={selectedPoint.projectedY} r="6" fill={theme.colors.warning} stroke={theme.colors.field} strokeWidth="2" /> : null}
+          <Rect x="0" y="0" width="520" height="158" fill="transparent" {...chartInteractionProps} />
+        </Svg>
+        {selectedPoint ? <ForecastPointTooltip point={selectedPoint} currency={currency} /> : null}
+      </View>
       <View style={styles.forecastAxis}>
-        <Text style={[styles.statSubvalue, styles.axisStart]}>Start</Text>
+        {showStartAxisLabel ? <Text style={[styles.statSubvalue, styles.axisStart]}>Start</Text> : null}
         <Text style={[styles.statSubvalue, styles.axisToday, { left: `${(currentPoint.x / 520) * 100}%` }]}>Today</Text>
         {showEndAxisLabel ? (
           <Text style={[styles.statSubvalue, styles.axisEnd]}>{range.title === "Current pay cycle" ? "Cycle end" : range.title === "All time" ? "Year end" : "Month end"}</Text>
@@ -487,18 +486,15 @@ function ForecastPointTooltip({
   const pointY = point.actual === null ? point.projectedY : point.actualY;
   const tooltipWidth = 108;
   const tooltipX = Math.max(8, Math.min(404, point.x - tooltipWidth / 2));
-  const tooltipY = pointY < 58 ? pointY + 12 : pointY - 52;
+  // Keep the fixed-size HTML callout away from its SVG marker at every
+  // responsive width. It sits below high points and above lower points.
+  const tooltipY = pointY < 68 ? Math.min(112, pointY + 16) : Math.max(4, pointY - 58);
 
   return (
-    <>
-      <Rect x={tooltipX} y={tooltipY} width={tooltipWidth} height="40" rx="8" fill={theme.colors.card} />
-      <SvgText x={tooltipX + tooltipWidth / 2} y={tooltipY + 15} fill={theme.colors.muted} fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="11" fontWeight="600" textAnchor="middle">
-        {point.label}
-      </SvgText>
-      <SvgText x={tooltipX + tooltipWidth / 2} y={tooltipY + 31} fill={theme.colors.ink} fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="13" fontWeight="700" textAnchor="middle">
-        {formatMoney(value, currency)}
-      </SvgText>
-    </>
+    <View pointerEvents="none" style={[styles.pointTooltip, { left: `${(tooltipX / 520) * 100}%`, top: tooltipY }]}>
+      <Text style={styles.pointTooltipLabel}>{point.label}</Text>
+      <Text style={styles.pointTooltipValue}>{formatMoney(value, currency)}</Text>
+    </View>
   );
 }
 
@@ -879,6 +875,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+  },
+  forecastPlot: {
+    position: "relative",
+  },
+  pointTooltip: {
+    alignItems: "center",
+    backgroundColor: theme.colors.card,
+    borderColor: theme.colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 108,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    position: "absolute",
+  },
+  pointTooltipLabel: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pointTooltipValue: {
+    color: theme.colors.ink,
+    fontSize: 14,
+    fontWeight: "700",
   },
   forecastTooltip: {
     alignSelf: "flex-start",

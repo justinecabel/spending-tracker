@@ -231,14 +231,16 @@ function AppShell() {
     }
   }, [accessToken, activeTab, isWeb, setTab]);
 
-  if (!hydrated || (isOnline && backendStatus !== "available")) {
+  // The health probe must not block the first screen. In a newly installed
+  // Safari PWA it can remain pending, which previously looked like a blank app.
+  if (!hydrated) {
     return (
       <LoadingSplash
         backgroundColor={palette.paper}
         accentColor={palette.accent}
         inkColor={palette.ink}
         mutedColor={palette.muted}
-        message={!hydrated ? "Loading your tracker" : "Connecting to your tracker..."}
+        message="Loading your tracker"
       />
     );
   }

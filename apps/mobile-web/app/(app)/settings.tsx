@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal, Platform, StyleSheet, Text, TextInput, useColorScheme, useWindowDimensions, View } from "react-native";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { InstallPanel } from "../../src/components/install-panel";
 import { usePwaInstallContext } from "../../src/hooks/use-pwa-install";
@@ -12,7 +12,7 @@ import { appearanceStore, getAppearanceProfileKey } from "../../src/state/appear
 import { summaryRangeStore, type SummaryRangeMode } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
 import { offlineQueueStore } from "../../src/state/offline-queue";
-import { normalizeCustomAccent, theme } from "../../src/theme";
+import { applyThemeMode, normalizeCustomAccent, theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
 
 const rangeModes: Array<{ key: SummaryRangeMode; label: string }> = [
@@ -26,6 +26,7 @@ const rangeModes: Array<{ key: SummaryRangeMode; label: string }> = [
 
 export default function SettingsScreen() {
   const { width } = useWindowDimensions();
+  const deviceScheme = useColorScheme();
   const user = sessionStore((state) => state.user);
   const { isInstalled } = usePwaInstallContext();
   const activeProfile = sessionStore((state) => state.activeProfile);
@@ -69,6 +70,21 @@ export default function SettingsScreen() {
     setSecondaryAccentDraft(customSecondaryAccent ?? "");
     setAccentError(null);
   }, [appearanceProfileKey, customAccent, customSecondaryAccent]);
+
+  // Give the Appearance editor a real-time preview. Saving is still required
+  // to persist the colors for this profile; leaving the screen restores them.
+  useEffect(() => {
+    applyThemeMode(
+      appearanceMode,
+      deviceScheme,
+      normalizeCustomAccent(accentDraft) ?? customAccent,
+      normalizeCustomAccent(secondaryAccentDraft) ?? customSecondaryAccent,
+    );
+  }, [accentDraft, appearanceMode, customAccent, customSecondaryAccent, deviceScheme, secondaryAccentDraft]);
+
+  useEffect(() => {
+    return () => applyThemeMode(appearanceMode, deviceScheme, customAccent, customSecondaryAccent);
+  }, [appearanceMode, customAccent, customSecondaryAccent, deviceScheme]);
 
   useEffect(() => {
     setIsImportModalOpen(false);
