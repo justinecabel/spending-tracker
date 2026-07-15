@@ -28,6 +28,8 @@ import {
   upsertBudget,
 } from "./repositories";
 import { notifyUser } from "./realtime";
+import { predictSpending } from "./ai-prediction";
+import { aiPredictionRequestSchema } from "@spending-tracker/shared";
 
 export const router = Router();
 const DEVICE_COOKIE_NAME = "spending_tracker_device";
@@ -239,4 +241,13 @@ router.put("/budgets/:id", requireAuth, (request, response) => {
 
 router.get("/reports/monthly", requireAuth, (request, response) => {
   response.json(getMonthlyReport(currentUser(request).id, first(request.query.month)));
+});
+
+router.post("/reports/prediction", requireAuth, (request, response, next) => {
+  try {
+    const input = aiPredictionRequestSchema.parse(request.body);
+    void predictSpending(input).then((result) => response.json(result)).catch(next);
+  } catch (error) {
+    next(error);
+  }
 });

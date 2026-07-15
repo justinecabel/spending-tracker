@@ -2,8 +2,6 @@ import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Modal, Platform, StyleSheet, Text, TextInput, useColorScheme, useWindowDimensions, View } from "react-native";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
-import { InstallPanel } from "../../src/components/install-panel";
-import { usePwaInstallContext } from "../../src/hooks/use-pwa-install";
 import { ScreenContainer } from "../../src/components/layout";
 import { TransferOutPanel } from "../../src/components/transfer-session";
 import { api } from "../../src/lib/api";
@@ -28,7 +26,6 @@ export default function SettingsScreen() {
   const { width } = useWindowDimensions();
   const deviceScheme = useColorScheme();
   const user = sessionStore((state) => state.user);
-  const { isInstalled } = usePwaInstallContext();
   const activeProfile = sessionStore((state) => state.activeProfile);
   const appearanceProfileKey = getAppearanceProfileKey(activeProfile, user?.id);
   const appearanceMode = appearanceStore((state) => state.getMode(appearanceProfileKey));
@@ -228,12 +225,6 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
       </Card>
-      {!isInstalled ? (
-        <Card>
-          <InstallPanel />
-        </Card>
-      ) : null}
-
       <Card>
         <SectionTitle
           title="Summary range"

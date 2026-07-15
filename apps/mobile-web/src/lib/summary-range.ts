@@ -21,7 +21,7 @@ export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()):
   switch (input.mode) {
     case "all-time":
       return {
-        key: "all-time",
+        key: `all-time:${now.getFullYear()}`,
         title: "All time",
         subtitle: `Forecast through ${now.getFullYear()} year end`,
         forecastTo: endOfYear(now).toISOString(),
@@ -65,7 +65,7 @@ export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()):
       const paydays = parsePaydays(input.smartPaydays);
       if (paydays.length === 0) {
         return {
-          key: "smart-pay-cycle:default",
+          key: `smart-pay-cycle:default:${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, "0")}`,
           title: "Current pay cycle",
           subtitle: "Add 2 or more payday dates in Settings",
           from: startOfMonth(now).toISOString(),

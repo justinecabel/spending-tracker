@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Modal, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Line, Polyline, Rect } from "react-native-svg";
-import type { MonthlyReport, Transaction } from "@spending-tracker/shared";
+import type { AiPredictionResponse, MonthlyReport, Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
@@ -15,6 +15,7 @@ import { summaryRangeStore } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
+import { useAiPrediction } from "../../src/hooks/use-ai-prediction";
 
 type SelectedStat = {
   label: string;
@@ -114,9 +115,18 @@ export default function ReportsScreen() {
     ...drafts.filter((transaction) => transaction.userId === userId),
     ...(predictionHistoryQuery.data ?? cachedPredictionHistory ?? []),
   ];
+  const categories = categoriesQuery.data ?? cachedCategories ?? [];
   // Fresh accounts have neither loaded nor cached categories during their
   // first render. Reports should render an empty state until they arrive.
-  const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories ?? []);
+  const report = buildSpendingReport(range.title, transactions, categories);
+  const aiPredictionQuery = useAiPrediction({
+    userId,
+    currency: user?.currency ?? "USD",
+    range,
+    transactions: [...transactions, ...predictionHistory],
+    categories,
+  });
+  const aiPrediction = aiPredictionQuery.data;
   const analytics = useMemo(
     () => buildAdvancedAnalytics(report, transactions, predictionHistory, range),
     [predictionHistory, report, range, transactions],
@@ -127,7 +137,7 @@ export default function ReportsScreen() {
   const forecastEndLabel = isPayCycle ? "Forecast to cycle end" : isAllTime ? "Forecast to year end" : "Forecast to month end";
   const trendLabel = isPayCycle ? "Cycle trend delta" : isAllTime ? "Year-end trend delta" : "Monthly trend delta";
   const statTiles = [
-    <StatTile key="forecast" label={forecastEndLabel} value={formatMoney(analytics.projectedMonthEnd, user?.currency ?? "USD")} />,
+    <StatTile key="forecast" label={`AI ${forecastEndLabel}`} value={formatMoney(aiPrediction?.projectedTotal ?? analytics.projectedMonthEnd, user?.currency ?? "USD")} subvalue={aiPrediction !== undefined ? "AI prediction" : "Waiting for AI prediction"} />,
     <StatTile key="average" label="Average transaction" value={formatMoney(analytics.averageTransaction, user?.currency ?? "USD")} />,
     <StatTile key="median" label="Median transaction" value={formatMoney(analytics.medianTransaction, user?.currency ?? "USD")} />,
     <StatTile key="active-day" label="Spend per active day" value={formatMoney(analytics.averageActiveDaySpend, user?.currency ?? "USD")} />,
@@ -194,6 +204,20 @@ export default function ReportsScreen() {
         />
         {queryErrorMessage && !hasTransactions ? <Text style={styles.errorText}>{queryErrorMessage}</Text> : null}
         {report ? <ReportCharts report={report} currency={user?.currency ?? "USD"} /> : null}
+        {aiPrediction?.categories.length ? (
+          <View style={styles.aiCategoryForecast}>
+            <SectionTitle title="AI category forecast" subtitle="Projected by cycle end" />
+            {aiPrediction.categories
+              .slice()
+              .sort((left, right) => right.projectedTotal - left.projectedTotal)
+              .map((category) => (
+                <View key={category.category} style={styles.aiCategoryRow}>
+                  <Text style={styles.statSubvalue}>{category.category}</Text>
+                  <Text style={styles.aiCategoryValue}>{formatMoney(category.projectedTotal, user?.currency ?? "USD")}</Text>
+                </View>
+              ))}
+          </View>
+        ) : null}
       </Card>
       <Card>
         <SectionTitle
@@ -206,11 +230,14 @@ export default function ReportsScreen() {
           </View>
         ) : (
           <>
+            {aiPredictionQuery.isPending ? <Text style={styles.aiStatus}>Predicting…</Text> : null}
+            {aiPredictionQuery.error ? <Text style={styles.aiStatus}>Prediction unavailable. Showing local metrics.</Text> : null}
             <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
               <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
                 <ForecastChart
                   transactions={transactions}
-                  projected={analytics.projectedMonthEnd}
+                  projected={aiPrediction?.projectedTotal ?? analytics.projectedMonthEnd}
+                  predictionPoints={aiPrediction?.points}
                   currency={user?.currency ?? "USD"}
                   range={range}
                 />
@@ -301,9 +328,9 @@ function describeStat(label: string) {
   return descriptions[label] ?? "Calculated from the transactions in your selected summary range.";
 }
 
-function ForecastChart({ transactions, projected, currency, range }: { transactions: Transaction[]; projected: number; currency: string; range: ResolvedSummaryRange }) {
+function ForecastChart({ transactions, projected, predictionPoints, currency, range }: { transactions: Transaction[]; projected: number; predictionPoints?: AiPredictionResponse["points"]; currency: string; range: ResolvedSummaryRange }) {
   const { width } = useWindowDimensions();
-  const { actualPoints, projectedPoints, currentPoint, spent, points } = buildForecastChart(transactions, projected, range);
+  const { actualPoints, projectedPoints, currentPoint, spent, points } = buildForecastChart(transactions, projected, range, predictionPoints);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const selectedPoint = selectedPointIndex === null ? undefined : points[selectedPointIndex];
@@ -390,7 +417,7 @@ type ForecastBucket = {
   label: string;
 };
 
-function buildForecastChart(transactions: Transaction[], projected: number, range: ResolvedSummaryRange) {
+function buildForecastChart(transactions: Transaction[], projected: number, range: ResolvedSummaryRange, predictionPoints: AiPredictionResponse["points"] = []) {
   const earliestTransaction = transactions.reduce<Date | null>((earliest, transaction) => {
     const date = new Date(transaction.occurredAt);
     return !earliest || date < earliest ? date : earliest;
@@ -414,7 +441,13 @@ function buildForecastChart(transactions: Transaction[], projected: number, rang
   const lastObservedIndex = observedIndexes[observedIndexes.length - 1] ?? 0;
   const futureCount = Math.max(0, buckets.length - lastObservedIndex - 1);
   const projectedPerFutureBucket = futureCount > 0 ? Math.max(0, projected - spent) / futureCount : 0;
-  const values = buckets.map((bucket, index) => bucket.start <= observedEnd ? (totals.get(index) ?? 0) : projectedPerFutureBucket);
+  const predictionByDate = new Map(predictionPoints.map((point) => [point.date, point.projectedAmount]));
+  const values = buckets.map((bucket, index) => {
+    if (bucket.start <= observedEnd) {
+      return totals.get(index) ?? 0;
+    }
+    return predictionByDate.get(chartDateKey(bucket.start)) ?? projectedPerFutureBucket;
+  });
   const maxValue = Math.max(...values, 1);
   const xForIndex = (index: number) => 24 + (index / Math.max(buckets.length - 1, 1)) * 476;
   const yForAmount = (amount: number) => 132 - (amount / maxValue) * 106;
@@ -445,6 +478,13 @@ function buildForecastChart(transactions: Transaction[], projected: number, rang
     spent,
     points,
   };
+}
+
+function chartDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function chartBucketUnit(start: Date, end: Date) {
@@ -764,6 +804,11 @@ function formatHourLabel(hour: number) {
 }
 
 const styles = StyleSheet.create({
+  aiStatus: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    marginBottom: 12,
+  },
   metrics: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -795,6 +840,25 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     maxWidth: 600,
     minWidth: 460,
+  },
+  aiCategoryForecast: {
+    borderTopColor: theme.colors.border,
+    borderTopWidth: 1,
+    marginTop: 18,
+    paddingTop: 16,
+  },
+  aiCategoryRow: {
+    alignItems: "center",
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+  },
+  aiCategoryValue: {
+    color: theme.colors.ink,
+    fontSize: 15,
+    fontWeight: "800",
   },
   statTile: {
     flexGrow: 1,

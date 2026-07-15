@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { Budget, Category, Transaction } from "@spending-tracker/shared";
+import type { AiPredictionResponse, Budget, Category, Transaction } from "@spending-tracker/shared";
 import { storage } from "../lib/storage";
 
 // These values must keep the same reference between Zustand snapshots. Returning
@@ -13,12 +13,16 @@ type OfflineCacheState = {
   categoriesByUser: Record<string, Category[]>;
   transactionsByScope: Record<string, Transaction[]>;
   budgetsByScope: Record<string, Budget[]>;
+  aiPredictionByKey: Record<string, AiPredictionResponse>;
+  aiPredictionHydrated: boolean;
   setCategories: (userId: string, categories: Category[]) => void;
   setTransactions: (scope: string, transactions: Transaction[]) => void;
   upsertCategory: (userId: string, category: Category) => void;
   removeCategory: (userId: string, id: string) => void;
   replaceCategory: (userId: string, temporaryId: string, category: Category) => void;
   setBudgets: (scope: string, budgets: Budget[]) => void;
+  setAiPrediction: (key: string, prediction: AiPredictionResponse) => void;
+  setAiPredictionHydrated: (value: boolean) => void;
   upsertBudget: (scope: string, budget: Budget) => void;
   updateTransaction: (userId: string, id: string, changes: Partial<Transaction>) => void;
   removeTransaction: (userId: string, id: string) => void;
@@ -30,6 +34,8 @@ export const offlineCacheStore = create<OfflineCacheState>()(
       categoriesByUser: {},
       transactionsByScope: {},
       budgetsByScope: {},
+      aiPredictionByKey: {},
+      aiPredictionHydrated: false,
       setCategories: (userId, categories) =>
         set((state) => ({
           categoriesByUser: {
@@ -94,6 +100,11 @@ export const offlineCacheStore = create<OfflineCacheState>()(
         set((state) => ({
           budgetsByScope: { ...state.budgetsByScope, [scope]: budgets },
         })),
+      setAiPrediction: (key, prediction) =>
+        set((state) => ({
+          aiPredictionByKey: { ...state.aiPredictionByKey, [key]: prediction },
+        })),
+      setAiPredictionHydrated: (value) => set({ aiPredictionHydrated: value }),
       upsertBudget: (scope, budget) =>
         set((state) => ({
           budgetsByScope: {
@@ -136,6 +147,9 @@ export const offlineCacheStore = create<OfflineCacheState>()(
     {
       name: "spending-tracker-offline-cache",
       storage: createJSONStorage(() => storage),
+      onRehydrateStorage: () => (state) => {
+        state?.setAiPredictionHydrated(true);
+      },
     },
   ),
 );

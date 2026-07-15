@@ -1,5 +1,7 @@
 import type {
   AuthResponse,
+  AiPredictionRequest,
+  AiPredictionResponse,
   Budget,
   BudgetUpsertInput,
   Category,
@@ -192,4 +194,9 @@ export const api = {
     }),
   monthlyReport: (month: string) =>
     request<MonthlyReport>(`/reports/monthly?month=${month}`),
+  aiPrediction: (input: AiPredictionRequest) =>
+    request<AiPredictionResponse>("/reports/prediction", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 };

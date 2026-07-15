@@ -15,9 +15,10 @@ import { appShellStore } from "../../src/state/app-shell";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { nanoid } from "nanoid/non-secure";
-import { Modal, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Modal, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
+import { useAiPrediction } from "../../src/hooks/use-ai-prediction";
 
 export default function DashboardScreen() {
   const user = sessionStore((state) => state.user);
@@ -351,8 +352,16 @@ export default function DashboardScreen() {
   ];
   // A newly signed-in profile has no query result or offline cache yet. Keep
   // the first render safe while the server creates/returns its categories.
-  const report = buildSpendingReport(range.title, transactions, categoriesQuery.data ?? cachedCategories ?? []);
-  const projectedPeriodEnd = estimateForecast(transactions, predictionHistory, range);
+  const categories = categoriesQuery.data ?? cachedCategories ?? [];
+  const report = buildSpendingReport(range.title, transactions, categories);
+  const aiPredictionQuery = useAiPrediction({
+    userId,
+    currency: user?.currency ?? "USD",
+    range,
+    transactions: [...transactions, ...predictionHistory],
+    categories,
+  });
+  const projectedPeriodEnd = aiPredictionQuery.data?.projectedTotal ?? estimateForecast(transactions, predictionHistory, range);
   const stacked = width < 820;
   const compact = width < 640;
 
@@ -367,9 +376,13 @@ export default function DashboardScreen() {
 
   const predictionCard = (
     <Card>
-      <SectionTitle title="Prediction" subtitle={range.title === "Current pay cycle" ? "Estimated spend by cycle end" : "Estimated spend by period end"} />
+      <SectionTitle title="Prediction" />
+      <View style={styles.predictionMetaRow}>
+        <Text style={styles.predictionMeta} numberOfLines={1}>AI estimate | Projected total</Text>
+        {aiPredictionQuery.isPending ? <ActivityIndicator size="small" color={theme.colors.accent} accessibilityLabel="AI prediction in progress" /> : null}
+      </View>
       <View style={styles.predictionRow}>
-        <Metric label="Projected total" value={formatMoney(projectedPeriodEnd, user?.currency ?? "USD")} tone="accent" />
+        <Text style={styles.predictionValue}>{formatMoney(projectedPeriodEnd, user?.currency ?? "USD")}</Text>
         <PillButton label="View report" tone="ghost" onPress={() => appShellStore.getState().setTab("reports")} />
       </View>
     </Card>
@@ -597,6 +610,23 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 16,
     justifyContent: "space-between",
+  },
+  predictionMetaRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  predictionMeta: {
+    color: theme.colors.muted,
+    flexShrink: 1,
+    fontSize: 15,
+  },
+  predictionValue: {
+    color: theme.colors.accent,
+    fontSize: 34,
+    fontWeight: "800",
   },
   list: {
     gap: 14,
