@@ -121,7 +121,7 @@ function AppShell() {
   // authenticated edits can be interrupted. This prevents an old waiting
   // update from surfacing as a "new version" banner after every login.
   const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus({ autoApplyWaitingUpdate: !accessToken });
-  const backendStatus = useBackendAvailability();
+  const { status: backendStatus, retry: retryBackend } = useBackendAvailability();
 
   useBootstrapSession();
   useSyncQueue(accessToken ? userId : null);
@@ -280,16 +280,23 @@ function AppShell() {
         </View>
         {updateAvailable || !isOnline || pendingSyncCount > 0 || backendStatus !== "available" ? (
           <View style={[styles.syncBanner, { backgroundColor: isOnline ? palette.accentSoft : palette.field, borderTopColor: palette.border }]}>
+            {backendStatus !== "available" ? <View style={[styles.syncStatusDot, { backgroundColor: backendStatus === "unavailable" ? palette.warning : palette.accent }]} /> : null}
             <Text style={[styles.syncBannerText, styles.syncBannerMessage, { color: isOnline ? palette.accent : palette.warning }]}>
-              {backendStatus !== "available"
-                ? "Connecting to your tracker..."
+              {backendStatus === "unavailable"
+                ? "Server unavailable — showing saved data."
+                : backendStatus === "checking"
+                ? "Checking server connection..."
                 : updateAvailable
                 ? "A new version is ready. Reload to update the app."
                 : isOnline
                 ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} waiting to sync`
                 : `${pendingSyncCount ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} saved locally · ` : ""}Offline mode — showing saved data`}
             </Text>
-            {updateAvailable ? (
+            {backendStatus === "unavailable" ? (
+              <Pressable style={styles.updateButton} onPress={retryBackend}>
+                <Text style={styles.updateButtonText}>Retry</Text>
+              </Pressable>
+            ) : updateAvailable ? (
               <Pressable style={styles.updateButton} onPress={applyUpdate}>
                 <Text style={styles.updateButtonText}>Reload</Text>
               </Pressable>
@@ -364,6 +371,11 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  syncStatusDot: {
+    borderRadius: 5,
+    height: 10,
+    width: 10,
   },
   syncBannerText: {
     fontSize: 13,

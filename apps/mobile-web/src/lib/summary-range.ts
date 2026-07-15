@@ -17,6 +17,16 @@ export type ResolvedSummaryRange = {
   forecastTo?: string;
 };
 
+export function budgetMonthsForRange(range: Pick<ResolvedSummaryRange, "from" | "to" | "forecastTo">, now = new Date()) {
+  const start = startOfMonth(range.from ? new Date(range.from) : now);
+  const end = startOfMonth(new Date(range.forecastTo ?? range.to ?? now));
+  const months: string[] = [];
+  for (let cursor = start; cursor <= end; cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)) {
+    months.push(`${cursor.getFullYear()}-${`${cursor.getMonth() + 1}`.padStart(2, "0")}`);
+  }
+  return months;
+}
+
 export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()): ResolvedSummaryRange {
   switch (input.mode) {
     case "all-time":

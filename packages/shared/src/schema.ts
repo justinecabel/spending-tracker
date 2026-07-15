@@ -156,44 +156,6 @@ export const monthlyReportSchema = z.object({
   budgetRemaining: z.number(),
 });
 
-export const aiPredictionTransactionSchema = z.object({
-  amount: z.number().positive(),
-  occurredAt: z.string(),
-  category: z.string().min(1),
-  merchant: z.string().nullable(),
-  note: z.string().nullable(),
-});
-
-export const aiPredictionRequestSchema = z.object({
-  instruction: z.string().trim().min(1).max(1000),
-  range: z.object({
-    title: z.string().min(1),
-    from: z.string().nullable(),
-    to: z.string().nullable(),
-    forecastTo: z.string().nullable(),
-  }),
-  currency: z.string().trim().min(3).max(3),
-  categoryNames: z.array(z.string().min(1)).max(20),
-  forecastDates: z.array(z.string()).max(62),
-  transactions: z.array(aiPredictionTransactionSchema).max(2000),
-});
-
-export const aiPredictionCategorySchema = z.object({
-  category: z.string().min(1),
-  projectedTotal: z.number().nonnegative(),
-});
-
-export const aiPredictionPointSchema = z.object({
-  date: z.string().min(1),
-  projectedAmount: z.number().nonnegative(),
-});
-
-export const aiPredictionResponseSchema = z.object({
-  projectedTotal: z.number().nonnegative(),
-  categories: z.array(aiPredictionCategorySchema).max(20),
-  points: z.array(aiPredictionPointSchema).max(62),
-});
-
 export const syncMutationSchema = z.object({
   id: z.string(),
   userId: z.string().min(1),
@@ -223,6 +185,4 @@ export type UpdateTransactionInput = z.infer<typeof updateTransactionInputSchema
 export type TransactionQuery = z.infer<typeof transactionQuerySchema>;
 export type BudgetUpsertInput = z.infer<typeof budgetUpsertInputSchema>;
 export type MonthlyReport = z.infer<typeof monthlyReportSchema>;
-export type AiPredictionRequest = z.infer<typeof aiPredictionRequestSchema>;
-export type AiPredictionResponse = z.infer<typeof aiPredictionResponseSchema>;
 export type SyncMutation = z.infer<typeof syncMutationSchema>;

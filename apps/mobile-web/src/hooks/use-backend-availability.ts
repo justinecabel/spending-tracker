@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../lib/api";
 
 type BackendStatus = "checking" | "available" | "unavailable";
@@ -6,6 +6,12 @@ type BackendStatus = "checking" | "available" | "unavailable";
 /** Keeps the shell in a reconnecting state while the API host is reachable again. */
 export function useBackendAvailability() {
   const [status, setStatus] = useState<BackendStatus>("checking");
+  const [checkVersion, setCheckVersion] = useState(0);
+
+  const retry = useCallback(() => {
+    setStatus("checking");
+    setCheckVersion((version) => version + 1);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -38,7 +44,7 @@ export function useBackendAvailability() {
       if (timeout) clearTimeout(timeout);
       if (interval) clearInterval(interval);
     };
-  }, []);
+  }, [checkVersion]);
 
-  return status;
+  return { status, retry };
 }

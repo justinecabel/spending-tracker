@@ -16,7 +16,4 @@ export const config = {
   emptyAccountGraceHours: positiveInteger(process.env.EMPTY_ACCOUNT_GRACE_HOURS, 12),
   inactiveAccountRetentionMonths: positiveInteger(process.env.INACTIVE_ACCOUNT_RETENTION_MONTHS, 12),
   cleanupIntervalHours: positiveInteger(process.env.CLEANUP_INTERVAL_HOURS, 12),
-  aiBaseUrl: (process.env.AI_BASE_URL ?? "http://localhost:1234").replace(/\/$/, ""),
-  aiModel: process.env.AI_MODEL ?? "phi-3-mini-4k-instruct",
-  aiTimeoutMs: positiveInteger(process.env.AI_TIMEOUT_MS, 20_000),
 };

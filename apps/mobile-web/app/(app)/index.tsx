@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Category, CreateCategoryInput, Transaction } from "@spending-tracker/shared";
+import { buildForecastAnalysis, type Category, type CreateCategoryInput, type Transaction } from "@spending-tracker/shared";
 import { Card, Metric, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { formatDateLabel, formatMoney } from "../../src/lib/date";
-import { buildSpendingReport, resolveSummaryRange } from "../../src/lib/summary-range";
+import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange } from "../../src/lib/summary-range";
 import { TransactionForm } from "../../src/components/transaction-form";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
 import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
@@ -15,10 +15,9 @@ import { appShellStore } from "../../src/state/app-shell";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { nanoid } from "nanoid/non-secure";
-import { ActivityIndicator, Modal, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Modal, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
-import { useAiPrediction } from "../../src/hooks/use-ai-prediction";
 
 export default function DashboardScreen() {
   const user = sessionStore((state) => state.user);
@@ -43,8 +42,9 @@ export default function DashboardScreen() {
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
   const transactionCacheId = transactionScopeKey(userId, `summary:${range.key}`);
   const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]);
-  const predictionHistoryCacheId = transactionScopeKey(userId, "prediction-history");
-  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]);
+  const historyCacheId = transactionScopeKey(userId, "forecast-history");
+  const cachedHistory = offlineCacheStore((state) => state.transactionsByScope[historyCacheId]);
+  const budgetMonths = budgetMonthsForRange(range);
 
   const categoriesQuery = useQuery({
     queryKey: ["categories", userId],
@@ -81,19 +81,39 @@ export default function DashboardScreen() {
     },
   });
 
-  const predictionHistoryQuery = useQuery({
-    queryKey: ["transactions", userId, "prediction-history"],
+  const historyQuery = useQuery({
+    queryKey: ["transactions", userId, "forecast-history"],
     queryFn: async () => {
       try {
         const transactions = await api.transactions();
-        offlineCacheStore.getState().setTransactions(predictionHistoryCacheId, transactions);
+        offlineCacheStore.getState().setTransactions(historyCacheId, transactions);
         return transactions;
       } catch (error) {
-        if (cachedPredictionHistory) {
-          return cachedPredictionHistory;
+        if (cachedHistory) {
+          return cachedHistory;
         }
         throw error;
       }
+    },
+  });
+
+  const budgetsQuery = useQuery({
+    queryKey: ["budgets", userId, "forecast", budgetMonths.join(",")],
+    queryFn: async () => {
+      const results = await Promise.all(
+        budgetMonths.map(async (month) => {
+          const cacheId = transactionScopeKey(userId, `budgets:${month}`);
+          const cached = offlineCacheStore.getState().budgetsByScope[cacheId];
+          try {
+            const budgets = await api.budgets(month);
+            offlineCacheStore.getState().setBudgets(cacheId, budgets);
+            return budgets;
+          } catch {
+            return cached ?? [];
+          }
+        }),
+      );
+      return results.flat();
     },
   });
 
@@ -346,22 +366,17 @@ export default function DashboardScreen() {
   const transactions = [...offlineDrafts, ...(transactionsQuery.data ?? [])].sort(
     (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
   );
-  const predictionHistory = [
+  const historyTransactions = [
     ...drafts.filter((transaction) => transaction.userId === userId),
-    ...(predictionHistoryQuery.data ?? cachedPredictionHistory ?? []),
+    ...(historyQuery.data ?? cachedHistory ?? []),
   ];
   // A newly signed-in profile has no query result or offline cache yet. Keep
   // the first render safe while the server creates/returns its categories.
   const categories = categoriesQuery.data ?? cachedCategories ?? [];
+  const budgets = budgetsQuery.data ?? [];
   const report = buildSpendingReport(range.title, transactions, categories);
-  const aiPredictionQuery = useAiPrediction({
-    userId,
-    currency: user?.currency ?? "USD",
-    range,
-    transactions: [...transactions, ...predictionHistory],
-    categories,
-  });
-  const projectedPeriodEnd = aiPredictionQuery.data?.projectedTotal ?? estimateForecast(transactions, predictionHistory, range);
+  const forecast = buildForecastAnalysis({ transactions, historyTransactions, categories, budgets, range });
+  const projectedPeriodEnd = forecast.projectedTotal;
   const stacked = width < 820;
   const compact = width < 640;
 
@@ -376,10 +391,11 @@ export default function DashboardScreen() {
 
   const predictionCard = (
     <Card>
-      <SectionTitle title="Prediction" />
+      <SectionTitle title="Forecast" />
       <View style={styles.predictionMetaRow}>
-        <Text style={styles.predictionMeta} numberOfLines={1}>AI estimate | Projected total</Text>
-        {aiPredictionQuery.isPending ? <ActivityIndicator size="small" color={theme.colors.accent} accessibilityLabel="AI prediction in progress" /> : null}
+        <Text style={styles.predictionMeta} numberOfLines={1}>
+          Projected total · {forecast.confidenceLabel.toLowerCase()} confidence
+        </Text>
       </View>
       <View style={styles.predictionRow}>
         <Text style={styles.predictionValue}>{formatMoney(projectedPeriodEnd, user?.currency ?? "USD")}</Text>
@@ -463,7 +479,7 @@ export default function DashboardScreen() {
         onRefresh={async () => {
           setIsRefreshing(true);
           try {
-            await Promise.all([categoriesQuery.refetch(), transactionsQuery.refetch()]);
+            await Promise.all([categoriesQuery.refetch(), transactionsQuery.refetch(), historyQuery.refetch(), budgetsQuery.refetch()]);
           } finally {
             setIsRefreshing(false);
           }
@@ -543,37 +559,6 @@ export default function DashboardScreen() {
       </Modal>
     </View>
   );
-}
-
-function estimateForecast(
-  transactions: Transaction[],
-  predictionHistory: Transaction[],
-  range: ReturnType<typeof resolveSummaryRange>,
-) {
-  const latestMonth = transactions.reduce(
-    (latest, transaction) => (transaction.occurredAt.slice(0, 7) > latest ? transaction.occurredAt.slice(0, 7) : latest),
-    new Date().toISOString().slice(0, 7),
-  );
-  const periodStart = new Date(range.from ?? `${latestMonth}-01T00:00:00.000Z`);
-  const periodEnd = new Date(range.forecastTo ?? new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0, 23, 59, 59, 999));
-  const observedEnd = range.to ? new Date(range.to) : new Date();
-  const elapsedEnd = new Date(Math.min(observedEnd.getTime(), Date.now()));
-  const totalDays = Math.max(1, Math.ceil((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1);
-  const elapsedDays = Math.max(1, Math.min(totalDays, Math.ceil((elapsedEnd.getTime() - periodStart.getTime()) / 86400000) + 1));
-  const spent = transactions.reduce((total, transaction) => {
-    const occurredAt = new Date(transaction.occurredAt);
-    return occurredAt >= periodStart && occurredAt <= elapsedEnd ? total + transaction.amount : total;
-  }, 0);
-  const historyStart = new Date(periodStart);
-  historyStart.setDate(historyStart.getDate() - 90);
-  const historicalSpend = predictionHistory.reduce((total, transaction) => {
-    const occurredAt = new Date(transaction.occurredAt);
-    return occurredAt >= historyStart && occurredAt < periodStart ? total + transaction.amount : total;
-  }, 0);
-  const currentDailyRate = spent / elapsedDays;
-  const dailyRate = historicalSpend > 0 ? currentDailyRate * 0.7 + (historicalSpend / 90) * 0.3 : currentDailyRate;
-
-  return spent + dailyRate * Math.max(0, totalDays - elapsedDays);
 }
 
 const styles = StyleSheet.create({

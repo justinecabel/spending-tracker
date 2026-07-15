@@ -1,21 +1,20 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Modal, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import Svg, { Circle, Line, Polyline, Rect } from "react-native-svg";
-import type { AiPredictionResponse, MonthlyReport, Transaction } from "@spending-tracker/shared";
+import Svg, { Circle, Line, Polygon, Polyline, Rect } from "react-native-svg";
+import { buildForecastAnalysis, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { formatMoney } from "../../src/lib/date";
-import { buildSpendingReport, resolveSummaryRange, type ResolvedSummaryRange } from "../../src/lib/summary-range";
+import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange, type ResolvedSummaryRange } from "../../src/lib/summary-range";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
 import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
 import { summaryRangeStore } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
-import { useAiPrediction } from "../../src/hooks/use-ai-prediction";
 
 type SelectedStat = {
   label: string;
@@ -31,6 +30,7 @@ export default function ReportsScreen() {
   const { width } = useWindowDimensions();
   const [selectedStat, setSelectedStat] = useState<SelectedStat | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const drafts = draftTransactionsStore((state) => state.drafts);
   const summaryMode = summaryRangeStore((state) => state.mode);
   const customFrom = summaryRangeStore((state) => state.customFrom);
@@ -46,8 +46,9 @@ export default function ReportsScreen() {
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
   const transactionCacheId = transactionScopeKey(userId, `reports:${range.key}`);
   const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]);
-  const predictionHistoryCacheId = transactionScopeKey(userId, "prediction-history");
-  const cachedPredictionHistory = offlineCacheStore((state) => state.transactionsByScope[predictionHistoryCacheId]);
+  const historyCacheId = transactionScopeKey(userId, "forecast-history");
+  const cachedHistory = offlineCacheStore((state) => state.transactionsByScope[historyCacheId]);
+  const budgetMonths = budgetMonthsForRange(range);
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "reports", range.key],
     queryFn: async () => {
@@ -81,19 +82,38 @@ export default function ReportsScreen() {
       }
     },
   });
-  const predictionHistoryQuery = useQuery({
-    queryKey: ["transactions", userId, "prediction-history"],
+  const historyQuery = useQuery({
+    queryKey: ["transactions", userId, "forecast-history"],
     queryFn: async () => {
       try {
         const transactions = await api.transactions();
-        offlineCacheStore.getState().setTransactions(predictionHistoryCacheId, transactions);
+        offlineCacheStore.getState().setTransactions(historyCacheId, transactions);
         return transactions;
       } catch (error) {
-        if (cachedPredictionHistory) {
-          return cachedPredictionHistory;
+        if (cachedHistory) {
+          return cachedHistory;
         }
         throw error;
       }
+    },
+  });
+  const budgetsQuery = useQuery({
+    queryKey: ["budgets", userId, "forecast", budgetMonths.join(",")],
+    queryFn: async () => {
+      const results = await Promise.all(
+        budgetMonths.map(async (month) => {
+          const cacheId = transactionScopeKey(userId, `budgets:${month}`);
+          const cached = offlineCacheStore.getState().budgetsByScope[cacheId];
+          try {
+            const budgets = await api.budgets(month);
+            offlineCacheStore.getState().setBudgets(cacheId, budgets);
+            return budgets;
+          } catch {
+            return cached ?? [];
+          }
+        }),
+      );
+      return results.flat();
     },
   });
   const offlineDrafts = drafts.filter((transaction) => {
@@ -111,25 +131,22 @@ export default function ReportsScreen() {
   const transactions = [...offlineDrafts, ...(transactionsQuery.data ?? [])].sort(
     (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
   );
-  const predictionHistory = [
+  const historyTransactions = [
     ...drafts.filter((transaction) => transaction.userId === userId),
-    ...(predictionHistoryQuery.data ?? cachedPredictionHistory ?? []),
+    ...(historyQuery.data ?? cachedHistory ?? []),
   ];
   const categories = categoriesQuery.data ?? cachedCategories ?? [];
+  const budgets = budgetsQuery.data ?? [];
   // Fresh accounts have neither loaded nor cached categories during their
   // first render. Reports should render an empty state until they arrive.
   const report = buildSpendingReport(range.title, transactions, categories);
-  const aiPredictionQuery = useAiPrediction({
-    userId,
-    currency: user?.currency ?? "USD",
-    range,
-    transactions: [...transactions, ...predictionHistory],
-    categories,
-  });
-  const aiPrediction = aiPredictionQuery.data;
+  const forecast = useMemo(
+    () => buildForecastAnalysis({ transactions, historyTransactions, categories, budgets, range }),
+    [budgets, categories, historyTransactions, range, transactions],
+  );
   const analytics = useMemo(
-    () => buildAdvancedAnalytics(report, transactions, predictionHistory, range),
-    [predictionHistory, report, range, transactions],
+    () => buildAdvancedAnalytics(report, transactions, historyTransactions, range, forecast.projectedTotal),
+    [forecast.projectedTotal, historyTransactions, report, range, transactions],
   );
   const isPayCycle = range.title === "Current pay cycle";
   const isAllTime = range.title === "All time";
@@ -137,7 +154,7 @@ export default function ReportsScreen() {
   const forecastEndLabel = isPayCycle ? "Forecast to cycle end" : isAllTime ? "Forecast to year end" : "Forecast to month end";
   const trendLabel = isPayCycle ? "Cycle trend delta" : isAllTime ? "Year-end trend delta" : "Monthly trend delta";
   const statTiles = [
-    <StatTile key="forecast" label={`AI ${forecastEndLabel}`} value={formatMoney(aiPrediction?.projectedTotal ?? analytics.projectedMonthEnd, user?.currency ?? "USD")} subvalue={aiPrediction !== undefined ? "AI prediction" : "Waiting for AI prediction"} />,
+    <StatTile key="forecast" label={forecastEndLabel} value={formatMoney(forecast.projectedTotal, user?.currency ?? "USD")} subvalue={`${forecast.confidenceLabel} confidence`} />,
     <StatTile key="average" label="Average transaction" value={formatMoney(analytics.averageTransaction, user?.currency ?? "USD")} />,
     <StatTile key="median" label="Median transaction" value={formatMoney(analytics.medianTransaction, user?.currency ?? "USD")} />,
     <StatTile key="active-day" label="Spend per active day" value={formatMoney(analytics.averageActiveDaySpend, user?.currency ?? "USD")} />,
@@ -160,6 +177,7 @@ export default function ReportsScreen() {
   ];
   const sideStatTiles = [...statTiles.slice(0, 4), ...statTiles.slice(4).filter((_, index) => index % 2 === 1)];
   const belowForecastTiles = statTiles.slice(4).filter((_, index) => index % 2 === 0);
+  const compactStatTiles = statTiles.slice(0, 4);
   const statDetails = (label: string) => {
     const currency = user?.currency ?? "USD";
     const total = formatMoney(report?.expenseTotal ?? 0, currency);
@@ -190,7 +208,7 @@ export default function ReportsScreen() {
       onRefresh={async () => {
         setIsRefreshing(true);
         try {
-          await Promise.all([transactionsQuery.refetch(), categoriesQuery.refetch()]);
+          await Promise.all([transactionsQuery.refetch(), historyQuery.refetch(), categoriesQuery.refetch(), budgetsQuery.refetch()]);
         } finally {
           setIsRefreshing(false);
         }
@@ -204,25 +222,23 @@ export default function ReportsScreen() {
         />
         {queryErrorMessage && !hasTransactions ? <Text style={styles.errorText}>{queryErrorMessage}</Text> : null}
         {report ? <ReportCharts report={report} currency={user?.currency ?? "USD"} /> : null}
-        {aiPrediction?.categories.length ? (
-          <View style={styles.aiCategoryForecast}>
-            <SectionTitle title="AI category forecast" subtitle="Projected by cycle end" />
-            {aiPrediction.categories
-              .slice()
-              .sort((left, right) => right.projectedTotal - left.projectedTotal)
-              .map((category) => (
-                <View key={category.category} style={styles.aiCategoryRow}>
-                  <Text style={styles.statSubvalue}>{category.category}</Text>
-                  <Text style={styles.aiCategoryValue}>{formatMoney(category.projectedTotal, user?.currency ?? "USD")}</Text>
-                </View>
-              ))}
-          </View>
-        ) : null}
+        <CategoryBudgetBars categories={forecast.categories} currency={user?.currency ?? "USD"} />
+      </Card>
+      <Card>
+        <SectionTitle title="Forecast summary" subtitle={`${forecast.confidenceLabel} confidence · ${forecast.futureDays} days remaining`} />
+        <View style={styles.summaryGrid}>
+          <ForecastMetric label="Actual" value={formatMoney(forecast.actualTotal, user?.currency ?? "USD")} />
+          <ForecastMetric label="Projected" value={formatMoney(forecast.projectedTotal, user?.currency ?? "USD")} />
+          <ForecastMetric label="Likely range" value={`${formatMoney(forecast.forecastLow, user?.currency ?? "USD")}–${formatMoney(forecast.forecastHigh, user?.currency ?? "USD")}`} />
+          <ForecastMetric label="Budget variance" value={forecast.budget.variance === null ? "No budget" : formatMoney(forecast.budget.variance, user?.currency ?? "USD")} tone={forecast.budget.variance !== null && forecast.budget.variance < 0 ? "negative" : "positive"} />
+          <ForecastMetric label="Safe daily spend" value={forecast.budget.remainingDaily === null ? "No budget" : formatMoney(forecast.budget.remainingDaily, user?.currency ?? "USD")} />
+        </View>
+        {forecast.dataQualityNotes.slice(0, 2).map((note) => <Text key={note} style={styles.dataNote}>{note}</Text>)}
       </Card>
       <Card>
         <SectionTitle
           title="Insights"
-          subtitle="Deeper spending diagnostics, cadence, and predictions."
+          subtitle="Spending patterns, pace, and forecast drivers."
         />
         {!hasTransactions ? (
           <View style={styles.emptyState}>
@@ -230,25 +246,24 @@ export default function ReportsScreen() {
           </View>
         ) : (
           <>
-            {aiPredictionQuery.isPending ? <Text style={styles.aiStatus}>Predicting…</Text> : null}
-            {aiPredictionQuery.error ? <Text style={styles.aiStatus}>Prediction unavailable. Showing local metrics.</Text> : null}
             <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
               <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
-                <ForecastChart
-                  transactions={transactions}
-                  projected={aiPrediction?.projectedTotal ?? analytics.projectedMonthEnd}
-                  predictionPoints={aiPrediction?.points}
-                  currency={user?.currency ?? "USD"}
-                  range={range}
-                />
-                {useSideInsights ? <View style={styles.nerdGrid}>{belowForecastTiles}</View> : null}
+                <ForecastChart transactions={transactions} forecast={forecast} currency={user?.currency ?? "USD"} range={range} />
+                {useSideInsights && showDetails ? <View style={styles.nerdGrid}>{belowForecastTiles}</View> : null}
               </View>
               <View style={[styles.nerdGrid, useSideInsights && styles.nerdGridSide]}>
-                {useSideInsights ? sideStatTiles : statTiles}
+                {useSideInsights ? (showDetails ? sideStatTiles : compactStatTiles) : (showDetails ? statTiles : compactStatTiles)}
               </View>
+            </View>
+            <View style={styles.detailToggle}>
+              <PillButton label={showDetails ? "Hide details" : "Show more insights"} tone="ghost" onPress={() => setShowDetails((value) => !value)} />
             </View>
           </>
         )}
+      </Card>
+      <Card>
+        <SectionTitle title="Spending drivers" subtitle="Recurring items, concentration, and unusual activity." />
+        <ForecastDrivers forecast={forecast} currency={user?.currency ?? "USD"} showDetails={showDetails} />
       </Card>
     </ScreenContainer>
     <Modal transparent visible={Boolean(selectedStat)} animationType="none" onRequestClose={() => setSelectedStat(null)}>
@@ -268,6 +283,121 @@ export default function ReportsScreen() {
       </View>
     </Modal>
     </insightStatContext.Provider>
+  );
+}
+
+function ForecastMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: StatTone }) {
+  return (
+    <View style={styles.forecastMetric}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={[styles.forecastMetricValue, tone === "positive" && styles.statValuePositive, tone === "negative" && styles.statValueNegative]}>{value}</Text>
+    </View>
+  );
+}
+
+function CategoryBudgetBars({ categories, currency }: { categories: ForecastAnalysis["categories"]; currency: string }) {
+  if (categories.length === 0) return null;
+  const visible = categories.length > 5
+    ? [
+        ...categories.slice(0, 5),
+        {
+          categoryId: null,
+          categoryName: "Other",
+          actual: categories.slice(5).reduce((total, category) => total + category.actual, 0),
+          projected: categories.slice(5).reduce((total, category) => total + category.projected, 0),
+          budget: categories.slice(5).some((category) => category.budget !== null)
+            ? categories.slice(5).reduce((total, category) => total + (category.budget ?? 0), 0)
+            : null,
+          variance: null,
+          share: categories.slice(5).reduce((total, category) => total + category.share, 0),
+        },
+      ]
+    : categories;
+  const max = Math.max(...visible.flatMap((category) => [category.actual, category.projected, category.budget ?? 0]), 1);
+  return (
+    <View style={styles.categoryForecastSection}>
+      <SectionTitle title="Projected by category" subtitle="Actual, projected, and prorated budget" />
+      {visible.map((category) => (
+        <View key={category.categoryId ?? category.categoryName} style={styles.categoryForecastRow}>
+          <View style={styles.categoryForecastMain}>
+            <Text style={styles.categoryForecastName}>{category.categoryName}</Text>
+            <ForecastBar label="Actual" amount={category.actual} max={max} color={theme.colors.accent} currency={currency} />
+            <ForecastBar label="Projected" amount={category.projected} max={max} color={theme.colors.warning} currency={currency} />
+            {category.budget !== null ? <ForecastBar label="Budget" amount={category.budget} max={max} color={theme.colors.muted} currency={currency} /> : null}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ForecastBar({ label, amount, max, color, currency }: { label: string; amount: number; max: number; color: string; currency: string }) {
+  return (
+    <View style={styles.barLine}>
+      <Text style={styles.barLabel}>{label}</Text>
+      <View style={styles.barTrack}><View style={[styles.barFill, { width: `${Math.min(100, Math.max(0, amount / max * 100))}%`, backgroundColor: color }]} /></View>
+      <Text style={styles.barValue}>{formatMoney(amount, currency)}</Text>
+    </View>
+  );
+}
+
+function ForecastDrivers({ forecast, currency, showDetails }: { forecast: ForecastAnalysis; currency: string; showDetails: boolean }) {
+  const weekdayRows = forecast.weekdayTotals.filter((item) => item.total > 0).sort((left, right) => right.total - left.total).slice(0, 4);
+  const hourlyRows = forecast.hourlyTotals.filter((item) => item.total > 0).sort((left, right) => right.total - left.total).slice(0, 4);
+  const patternMax = Math.max(...weekdayRows.map((item) => item.total), ...hourlyRows.map((item) => item.total), 1);
+  return (
+    <>
+      <View style={styles.driverGrid}>
+      <View style={styles.driverColumn}>
+        <Text style={styles.driverTitle}>Recurring</Text>
+        {forecast.recurring.length === 0 ? <Text style={styles.statSubvalue}>No consistent recurring pattern yet.</Text> : forecast.recurring.slice(0, 3).map((pattern) => (
+          <View key={`${pattern.label}-${pattern.nextDate}`} style={styles.driverRow}>
+            <View style={styles.driverText}><Text style={styles.driverLabel}>{pattern.label}</Text><Text style={styles.statSubvalue}>{pattern.cadence} · next {pattern.nextDate ?? "later"}</Text></View>
+            <Text style={styles.driverValue}>{formatMoney(pattern.projectedTotal, currency)}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={styles.driverColumn}>
+        <Text style={styles.driverTitle}>Top merchants</Text>
+        {forecast.topMerchants.length === 0 ? <Text style={styles.statSubvalue}>Add merchant names for concentration insights.</Text> : forecast.topMerchants.slice(0, 3).map((merchant) => (
+          <View key={merchant.merchant} style={styles.driverRow}>
+            <Text style={styles.driverLabel}>{merchant.merchant}</Text>
+            <Text style={styles.driverValue}>{formatMoney(merchant.total, currency)}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={styles.driverColumn}>
+        <Text style={styles.driverTitle}>Recent movement</Text>
+        <Text style={styles.driverLabel}>{forecast.recentSevenDayTotal === 0 ? "No recent spend" : `${Math.round(Math.abs(forecast.recentSevenDayDelta) * 100)}% ${forecast.recentSevenDayDelta <= 0 ? "lower" : "higher"}`}</Text>
+        <Text style={styles.statSubvalue}>Latest 7 days vs previous 7 days</Text>
+        {forecast.unusualTransactions.slice(0, 2).map((transaction) => <Text key={transaction.id} style={styles.dataNote}>{transaction.label}: {formatMoney(transaction.amount, currency)}</Text>)}
+      </View>
+      </View>
+      {showDetails ? (
+        <View style={styles.patternDetails}>
+          <SectionTitle title="Pattern details" subtitle="Expand the report for weekday, time, and outlier context." />
+          <View style={styles.patternGrid}>
+            <View style={styles.patternColumn}>
+              <Text style={styles.driverTitle}>Weekday pattern</Text>
+              {weekdayRows.length ? weekdayRows.map((item) => <ForecastBar key={item.weekday} label={item.label.slice(0, 3)} amount={item.total} max={patternMax} color={theme.colors.accent} currency={currency} />) : <Text style={styles.statSubvalue}>No weekday pattern yet.</Text>}
+            </View>
+            <View style={styles.patternColumn}>
+              <Text style={styles.driverTitle}>Time of day</Text>
+              {hourlyRows.length ? hourlyRows.map((item) => <ForecastBar key={item.hour} label={item.label} amount={item.total} max={patternMax} color={theme.colors.warning} currency={currency} />) : <Text style={styles.statSubvalue}>No time pattern yet.</Text>}
+            </View>
+            <View style={styles.patternColumn}>
+              <Text style={styles.driverTitle}>Outliers</Text>
+              {forecast.unusualTransactions.length ? forecast.unusualTransactions.slice(0, 4).map((transaction) => (
+                <View key={transaction.id} style={styles.outlierRow}>
+                  <View style={styles.driverText}><Text style={styles.driverLabel}>{transaction.label}</Text><Text style={styles.statSubvalue}>{transaction.reason}</Text></View>
+                  <Text style={styles.driverValue}>{formatMoney(transaction.amount, currency)}</Text>
+                </View>
+              )) : <Text style={styles.statSubvalue}>No unusual transactions detected.</Text>}
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -328,9 +458,10 @@ function describeStat(label: string) {
   return descriptions[label] ?? "Calculated from the transactions in your selected summary range.";
 }
 
-function ForecastChart({ transactions, projected, predictionPoints, currency, range }: { transactions: Transaction[]; projected: number; predictionPoints?: AiPredictionResponse["points"]; currency: string; range: ResolvedSummaryRange }) {
+function ForecastChart({ transactions, forecast, currency, range }: { transactions: Transaction[]; forecast: ForecastAnalysis; currency: string; range: ResolvedSummaryRange }) {
   const { width } = useWindowDimensions();
-  const { actualPoints, projectedPoints, currentPoint, spent, points } = buildForecastChart(transactions, projected, range, predictionPoints);
+  const projected = forecast.projectedTotal;
+  const { actualPoints, projectedPoints, confidenceBand, currentPoint, spent, points } = buildForecastChart(transactions, forecast.projectedTotal, range, forecast.points);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const selectedPoint = selectedPointIndex === null ? undefined : points[selectedPointIndex];
@@ -372,6 +503,7 @@ function ForecastChart({ transactions, projected, predictionPoints, currency, ra
           <Text style={styles.forecastTitle}>{range.title === "Current pay cycle" ? "Pay-cycle forecast" : range.title === "All time" ? "Year-end forecast" : "Month-end forecast"}</Text>
           <Text style={styles.statSubvalue}>{formatMoney(spent, currency)} actual · {formatMoney(projected, currency)} projected</Text>
         </View>
+        <Text style={styles.statSubvalue}>{formatMoney(forecast.forecastLow, currency)}–{formatMoney(forecast.forecastHigh, currency)} likely range · {forecast.confidenceLabel} confidence</Text>
         <View style={styles.forecastLegend}>
           <View style={[styles.legendLine, styles.actualLegend]} />
           <Text style={styles.legendText}>Actual</Text>
@@ -391,6 +523,7 @@ function ForecastChart({ transactions, projected, predictionPoints, currency, ra
         >
           <Line x1="24" y1="132" x2="500" y2="132" stroke={theme.colors.border} strokeWidth="1" />
           {selectedPoint ? <Line x1={selectedPoint.x} y1="16" x2={selectedPoint.x} y2="132" stroke={theme.colors.border} strokeDasharray="4 5" /> : null}
+          {confidenceBand ? <Polygon points={confidenceBand} fill={theme.colors.accentSoft} opacity={0.7} /> : null}
           <Polyline points={projectedPoints} fill="none" stroke={theme.colors.warning} strokeWidth="3" strokeDasharray="7 6" />
           <Polyline points={actualPoints} fill="none" stroke={theme.colors.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
           {selectedPoint && selectedPoint.actual !== null ? <Circle cx={selectedPoint.x} cy={selectedPoint.actualY} r="6" fill={theme.colors.accent} stroke={theme.colors.field} strokeWidth="2" /> : null}
@@ -417,7 +550,7 @@ type ForecastBucket = {
   label: string;
 };
 
-function buildForecastChart(transactions: Transaction[], projected: number, range: ResolvedSummaryRange, predictionPoints: AiPredictionResponse["points"] = []) {
+function buildForecastChart(transactions: Transaction[], projected: number, range: ResolvedSummaryRange, forecastPoints: ForecastAnalysis["points"] = []) {
   const earliestTransaction = transactions.reduce<Date | null>((earliest, transaction) => {
     const date = new Date(transaction.occurredAt);
     return !earliest || date < earliest ? date : earliest;
@@ -441,14 +574,24 @@ function buildForecastChart(transactions: Transaction[], projected: number, rang
   const lastObservedIndex = observedIndexes[observedIndexes.length - 1] ?? 0;
   const futureCount = Math.max(0, buckets.length - lastObservedIndex - 1);
   const projectedPerFutureBucket = futureCount > 0 ? Math.max(0, projected - spent) / futureCount : 0;
-  const predictionByDate = new Map(predictionPoints.map((point) => [point.date, point.projectedAmount]));
+  const futurePointsForBucket = (bucket: ForecastBucket) => forecastPoints.filter((point) => {
+    if (point.actual !== null) return false;
+    const date = new Date(`${point.date}T00:00:00`);
+    return date >= bucket.start && date <= bucket.end;
+  });
+  const sumForecastField = (bucket: ForecastBucket, field: "projected" | "low" | "high") => {
+    const points = futurePointsForBucket(bucket);
+    return points.length ? points.reduce((total, point) => total + point[field], 0) : null;
+  };
   const values = buckets.map((bucket, index) => {
     if (bucket.start <= observedEnd) {
       return totals.get(index) ?? 0;
     }
-    return predictionByDate.get(chartDateKey(bucket.start)) ?? projectedPerFutureBucket;
+    return sumForecastField(bucket, "projected") ?? projectedPerFutureBucket;
   });
-  const maxValue = Math.max(...values, 1);
+  const lowValues = buckets.map((bucket, index) => bucket.start <= observedEnd ? values[index] : sumForecastField(bucket, "low") ?? values[index]);
+  const highValues = buckets.map((bucket, index) => bucket.start <= observedEnd ? values[index] : sumForecastField(bucket, "high") ?? values[index]);
+  const maxValue = Math.max(...values, ...highValues, 1);
   const xForIndex = (index: number) => 24 + (index / Math.max(buckets.length - 1, 1)) * 476;
   const yForAmount = (amount: number) => 132 - (amount / maxValue) * 106;
   const actual = buckets
@@ -456,6 +599,12 @@ function buildForecastChart(transactions: Transaction[], projected: number, rang
     .filter(Boolean) as string[];
   const prediction = buckets
     .map((bucket, index) => index >= lastObservedIndex ? `${xForIndex(index)},${yForAmount(values[index])}` : null)
+    .filter(Boolean) as string[];
+  const bandUpper = buckets
+    .map((bucket, index) => index >= lastObservedIndex ? `${xForIndex(index)},${yForAmount(highValues[index])}` : null)
+    .filter(Boolean) as string[];
+  const bandLower = buckets
+    .map((bucket, index) => index >= lastObservedIndex ? `${xForIndex(index)},${yForAmount(lowValues[index])}` : null)
     .filter(Boolean) as string[];
   const points = buckets.map((bucket, index) => {
     const actualValue = bucket.start <= observedEnd ? (totals.get(index) ?? 0) : null;
@@ -474,17 +623,11 @@ function buildForecastChart(transactions: Transaction[], projected: number, rang
   return {
     actualPoints: actual.join(" "),
     projectedPoints: prediction.join(" "),
+    confidenceBand: [...bandUpper, ...bandLower.reverse()].join(" "),
     currentPoint: { index: lastObservedIndex, x: xForIndex(lastObservedIndex) },
     spent,
     points,
   };
-}
-
-function chartDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function chartBucketUnit(start: Date, end: Date) {
@@ -568,8 +711,9 @@ function ForecastPointDetail({
 function buildAdvancedAnalytics(
   report: MonthlyReport | undefined,
   transactions: Transaction[],
-  predictionHistory: Transaction[],
+  historyTransactions: Transaction[],
   range: ResolvedSummaryRange,
+  projectedTotal: number,
 ) {
   const monthTransactions = [...transactions].sort(
     (left, right) => new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime(),
@@ -614,7 +758,7 @@ function buildAdvancedAnalytics(
     hourTotals.set(hour, (hourTotals.get(hour) ?? 0) + transaction.amount);
   }
 
-  for (const transaction of predictionHistory) {
+  for (const transaction of historyTransactions) {
     const bucket = transaction.occurredAt.slice(0, 7);
     monthTotals.set(bucket, (monthTotals.get(bucket) ?? 0) + transaction.amount);
   }
@@ -634,7 +778,7 @@ function buildAdvancedAnalytics(
   const elapsedDays = Math.max(1, Math.min(totalDays, Math.ceil((Math.min(now.getTime(), new Date(observedEnd).getTime()) - monthDate.getTime()) / 86400000) + 1));
   const historyStart = new Date(monthDate);
   historyStart.setDate(historyStart.getDate() - 90);
-  const historicalSpend = predictionHistory.reduce((total, transaction) => {
+  const historicalSpend = historyTransactions.reduce((total, transaction) => {
     const occurredAt = new Date(transaction.occurredAt);
     return occurredAt >= historyStart && occurredAt < monthDate ? total + transaction.amount : total;
   }, 0);
@@ -643,7 +787,7 @@ function buildAdvancedAnalytics(
   const dailyRunRate = historicalSpend > 0
     ? currentDailyRate * 0.7 + historicalDailyRate * 0.3
     : currentDailyRate;
-  const projectedMonthEnd = forecastExpenseTotal + dailyRunRate * Math.max(0, totalDays - elapsedDays);
+  const projectedMonthEnd = projectedTotal;
 
   const referenceDate = new Date(Math.min(now.getTime(), new Date(observedEnd).getTime()));
   const dayKey = (date: Date) => date.toISOString().slice(0, 10);
@@ -804,10 +948,150 @@ function formatHourLabel(hour: number) {
 }
 
 const styles = StyleSheet.create({
-  aiStatus: {
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  forecastMetric: {
+    backgroundColor: theme.colors.field,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    flexGrow: 1,
+    flexBasis: 150,
+    gap: 5,
+    padding: 12,
+    minWidth: 0,
+  },
+  forecastMetricValue: {
+    color: theme.colors.ink,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  dataNote: {
     color: theme.colors.muted,
     fontSize: 13,
-    marginBottom: 12,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  categoryForecastSection: {
+    borderTopColor: theme.colors.border,
+    borderTopWidth: 1,
+    gap: 10,
+    marginTop: 18,
+    paddingTop: 16,
+  },
+  categoryForecastRow: {
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: 1,
+    paddingBottom: 10,
+  },
+  categoryForecastMain: {
+    gap: 4,
+  },
+  categoryForecastName: {
+    color: theme.colors.ink,
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  barLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  barLabel: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    width: 58,
+  },
+  barTrack: {
+    backgroundColor: theme.colors.border,
+    borderRadius: 999,
+    flex: 1,
+    height: 7,
+    overflow: "hidden",
+  },
+  barFill: {
+    borderRadius: 999,
+    height: "100%",
+  },
+  barValue: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    minWidth: 74,
+    textAlign: "right",
+  },
+  driverGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 18,
+  },
+  patternDetails: {
+    borderTopColor: theme.colors.border,
+    borderTopWidth: 1,
+    marginTop: 18,
+    paddingTop: 16,
+  },
+  patternGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 18,
+  },
+  patternColumn: {
+    flexGrow: 1,
+    flexBasis: 220,
+    gap: 8,
+    minWidth: 0,
+  },
+  outlierRow: {
+    alignItems: "center",
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    paddingVertical: 6,
+  },
+  driverColumn: {
+    flexGrow: 1,
+    flexBasis: 220,
+    gap: 8,
+    minWidth: 0,
+  },
+  driverTitle: {
+    color: theme.colors.ink,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  driverRow: {
+    alignItems: "center",
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    paddingVertical: 6,
+  },
+  driverText: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  driverLabel: {
+    color: theme.colors.ink,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  driverValue: {
+    color: theme.colors.ink,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  detailToggle: {
+    alignItems: "flex-start",
+    marginTop: 12,
   },
   metrics: {
     flexDirection: "row",
@@ -840,25 +1124,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     maxWidth: 600,
     minWidth: 460,
-  },
-  aiCategoryForecast: {
-    borderTopColor: theme.colors.border,
-    borderTopWidth: 1,
-    marginTop: 18,
-    paddingTop: 16,
-  },
-  aiCategoryRow: {
-    alignItems: "center",
-    borderBottomColor: theme.colors.border,
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-  },
-  aiCategoryValue: {
-    color: theme.colors.ink,
-    fontSize: 15,
-    fontWeight: "800",
   },
   statTile: {
     flexGrow: 1,
