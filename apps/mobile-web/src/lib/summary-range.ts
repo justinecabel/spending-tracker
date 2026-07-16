@@ -6,6 +6,7 @@ type SummaryRangeInput = {
   customFrom: string;
   customTo: string;
   smartPaydays: string;
+  cycleOffset?: number;
 };
 
 export type ResolvedSummaryRange = {
@@ -28,43 +29,57 @@ export function budgetMonthsForRange(range: Pick<ResolvedSummaryRange, "from" | 
 }
 
 export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()): ResolvedSummaryRange {
+  const cycleOffset = Math.min(0, Math.trunc(input.cycleOffset ?? 0));
   switch (input.mode) {
-    case "all-time":
+    case "all-time": {
+      const referenceDate = new Date(now.getFullYear() + cycleOffset, 0, 1);
       return {
-        key: `all-time:${now.getFullYear()}`,
+        key: cycleOffset === 0 ? `all-time:${now.getFullYear()}` : `all-time:year:${referenceDate.getFullYear()}`,
         title: "All time",
-        subtitle: `Forecast through ${now.getFullYear()} year end`,
-        forecastTo: endOfYear(now).toISOString(),
+        subtitle: cycleOffset === 0
+          ? `Forecast through ${now.getFullYear()} year end`
+          : `${referenceDate.getFullYear()} calendar year`,
+        from: cycleOffset === 0 ? undefined : startOfYear(referenceDate).toISOString(),
+        to: cycleOffset === 0 ? undefined : endOfYear(referenceDate).toISOString(),
+        forecastTo: endOfYear(referenceDate).toISOString(),
       };
+    }
     case "last-30-days": {
-      const from = shiftDays(startOfDay(now), -29);
+      const windowEnd = shiftDays(now, cycleOffset * 30);
+      const from = shiftDays(startOfDay(windowEnd), -29);
       return {
         key: `last-30-days:${from.toISOString().slice(0, 10)}`,
         title: "Last 30 days",
         from: from.toISOString(),
-        to: endOfDay(now).toISOString(),
-        forecastTo: endOfDay(now).toISOString(),
+        to: endOfDay(windowEnd).toISOString(),
+        forecastTo: endOfDay(windowEnd).toISOString(),
       };
     }
     case "last-15-days": {
-      const from = shiftDays(startOfDay(now), -14);
+      const windowEnd = shiftDays(now, cycleOffset * 15);
+      const from = shiftDays(startOfDay(windowEnd), -14);
       return {
         key: `last-15-days:${from.toISOString().slice(0, 10)}`,
         title: "Last 15 days",
         from: from.toISOString(),
-        to: endOfDay(now).toISOString(),
-        forecastTo: endOfDay(now).toISOString(),
+        to: endOfDay(windowEnd).toISOString(),
+        forecastTo: endOfDay(windowEnd).toISOString(),
       };
     }
     case "custom-date": {
-      const from = input.customFrom ? startOfDay(new Date(`${input.customFrom}T00:00:00`)).toISOString() : undefined;
-      const to = input.customTo ? endOfDay(new Date(`${input.customTo}T00:00:00`)).toISOString() : undefined;
+      const customStart = input.customFrom ? startOfDay(new Date(`${input.customFrom}T00:00:00`)) : undefined;
+      const customEnd = input.customTo ? endOfDay(new Date(`${input.customTo}T00:00:00`)) : undefined;
+      const windowDays = customStart && customEnd
+        ? Math.max(1, Math.round((startOfDay(customEnd).getTime() - customStart.getTime()) / 86_400_000) + 1)
+        : 0;
+      const from = customStart ? shiftDays(customStart, cycleOffset * windowDays).toISOString() : undefined;
+      const to = customEnd ? shiftDays(customEnd, cycleOffset * windowDays).toISOString() : undefined;
       return {
-        key: `custom-date:${input.customFrom}:${input.customTo}`,
+        key: `custom-date:${from ?? ""}:${to ?? ""}`,
         title: "Custom dates",
         subtitle:
-          input.customFrom && input.customTo
-            ? `${input.customFrom} to ${input.customTo}`
+          from && to
+            ? `${from.slice(0, 10)} to ${to.slice(0, 10)}`
             : "Pick a start and end date",
         from,
         to,
@@ -74,35 +89,43 @@ export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()):
     case "smart-pay-cycle": {
       const paydays = parsePaydays(input.smartPaydays);
       if (paydays.length === 0) {
+        const referenceDate = shiftMonths(now, cycleOffset);
         return {
-          key: `smart-pay-cycle:default:${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, "0")}`,
-          title: "Current pay cycle",
+          key: `smart-pay-cycle:default:${referenceDate.getFullYear()}-${`${referenceDate.getMonth() + 1}`.padStart(2, "0")}`,
+          title: cycleOffset === 0 ? "Current pay cycle" : "Pay cycle",
           subtitle: "Add 2 or more payday dates in Settings",
-          from: startOfMonth(now).toISOString(),
-          to: endOfDay(now).toISOString(),
-          forecastTo: endOfMonth(now).toISOString(),
+          from: startOfMonth(referenceDate).toISOString(),
+          to: (cycleOffset === 0 ? endOfDay(now) : endOfMonth(referenceDate)).toISOString(),
+          forecastTo: endOfMonth(referenceDate).toISOString(),
         };
       }
 
-      const lastPayday = findLastPayday(now, paydays);
-      const nextPayday = findNextPayday(now, paydays);
+      let cycleReference = now;
+      for (let index = 0; index > cycleOffset; index -= 1) {
+        const cycleStart = findLastPayday(cycleReference, paydays);
+        cycleReference = new Date(cycleStart.getTime() - 1);
+      }
+      const lastPayday = findLastPayday(cycleReference, paydays);
+      const nextPayday = findNextPayday(cycleReference, paydays);
       return {
         key: `smart-pay-cycle:${paydays.join("-")}:${lastPayday.toISOString().slice(0, 10)}`,
-        title: "Current pay cycle",
+        title: cycleOffset === 0 ? "Current pay cycle" : "Pay cycle",
         subtitle: `${formatDayLabel(lastPayday)} to ${formatDayLabel(nextPayday)}`,
         from: startOfDay(lastPayday).toISOString(),
-          to: endOfDay(now).toISOString(),
-          forecastTo: endOfDay(nextPayday).toISOString(),
+        to: endOfDay(cycleOffset === 0 ? now : nextPayday).toISOString(),
+        forecastTo: endOfDay(nextPayday).toISOString(),
       };
     }
     case "this-month":
     default:
+      const referenceDate = shiftMonths(now, cycleOffset);
       return {
-        key: `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, "0")}`,
-        title: "This month",
-        from: startOfMonth(now).toISOString(),
-        to: endOfDay(now).toISOString(),
-        forecastTo: endOfMonth(now).toISOString(),
+        key: `${referenceDate.getFullYear()}-${`${referenceDate.getMonth() + 1}`.padStart(2, "0")}`,
+        title: cycleOffset === 0 ? "This month" : "Month",
+        subtitle: formatMonthLabel(referenceDate),
+        from: startOfMonth(referenceDate).toISOString(),
+        to: (cycleOffset === 0 ? endOfDay(now) : endOfMonth(referenceDate)).toISOString(),
+        forecastTo: endOfMonth(referenceDate).toISOString(),
       };
   }
 }
@@ -164,6 +187,10 @@ function endOfYear(date: Date) {
   return new Date(date.getFullYear(), 11, 31, 23, 59, 59, 999);
 }
 
+function startOfYear(date: Date) {
+  return new Date(date.getFullYear(), 0, 1, 0, 0, 0, 0);
+}
+
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
 }
@@ -174,6 +201,10 @@ function endOfDay(date: Date) {
 
 function shiftDays(date: Date, delta: number) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + delta, date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds());
+}
+
+function shiftMonths(date: Date, delta: number) {
+  return new Date(date.getFullYear(), date.getMonth() + delta, 1, date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds());
 }
 
 function occurrenceForMonth(baseDate: Date, day: number, monthOffset = 0) {
@@ -205,5 +236,12 @@ function formatDayLabel(date: Date) {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
+  }).format(date);
+}
+
+function formatMonthLabel(date: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "long",
+    year: "numeric",
   }).format(date);
 }

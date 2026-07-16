@@ -464,7 +464,7 @@ export default function DashboardScreen() {
 
   const merchantSuggestions = Array.from(
     new Set(
-      transactions
+      historyTransactions
         .map((transaction) => transaction.merchant?.trim() ?? "")
         .filter((merchant) => merchant.length > 0),
     ),

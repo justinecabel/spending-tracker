@@ -28,8 +28,9 @@ function toWebButtonStyle(style: Record<string, unknown>): CSSProperties {
  * exported static bundle. Render a real HTML button on web while preserving
  * native `onPress` behavior elsewhere.
  */
-export function WebPressable({ onPress, accessibilityRole, ...props }: WebPressableProps) {
+export function WebPressable({ onPress, accessibilityLabel, accessibilityRole, disabled, ...props }: WebPressableProps) {
   if (Platform.OS === "web") {
+    const isDisabled = disabled === true;
     const resolvedStyle =
       typeof props.style === "function"
         ? (props.style as (state: unknown) => unknown)({})
@@ -43,14 +44,16 @@ export function WebPressable({ onPress, accessibilityRole, ...props }: WebPressa
     return (
       <button
         type="button"
-        onClick={onPress as unknown as () => void}
+        aria-label={accessibilityLabel}
+        disabled={isDisabled}
+        onClick={isDisabled ? undefined : onPress as unknown as () => void}
         style={{
           appearance: "none",
           alignItems: "stretch",
           backgroundColor: "transparent",
           boxSizing: "border-box",
           color: "inherit",
-          cursor: "pointer",
+          cursor: isDisabled ? "default" : "pointer",
           display: "flex",
           flexDirection: "column",
           fontFamily: "inherit",
@@ -71,6 +74,8 @@ export function WebPressable({ onPress, accessibilityRole, ...props }: WebPressa
     <NativePressable
       {...props}
       accessibilityRole={accessibilityRole ?? "button"}
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
       onPress={onPress}
     />
   );

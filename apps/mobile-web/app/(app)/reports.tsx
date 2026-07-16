@@ -1,6 +1,6 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Modal, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Modal, PanResponder, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Line, Polygon, Polyline, Rect } from "react-native-svg";
 import { buildForecastAnalysis, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
@@ -25,22 +25,86 @@ type SelectedStat = {
 
 const insightStatContext = createContext<(stat: SelectedStat) => void>(() => undefined);
 
+function findScrollContainer(node: HTMLElement) {
+  let parent = node.parentElement;
+  while (parent) {
+    const overflowY = window.getComputedStyle(parent).overflowY;
+    if ((overflowY === "auto" || overflowY === "scroll") && parent.scrollHeight > parent.clientHeight) {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+  return document.scrollingElement as HTMLElement | null;
+}
+
 export default function ReportsScreen() {
   const user = sessionStore((state) => state.user);
   const { width } = useWindowDimensions();
   const [selectedStat, setSelectedStat] = useState<SelectedStat | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [cycleOffset, setCycleOffset] = useState(0);
+  const graphAnchorRef = useRef<any>(null);
+  const graphViewportTopRef = useRef<number | null>(null);
+  const graphScrollContainerRef = useRef<HTMLElement | null>(null);
   const drafts = draftTransactionsStore((state) => state.drafts);
   const summaryMode = summaryRangeStore((state) => state.mode);
   const customFrom = summaryRangeStore((state) => state.customFrom);
   const customTo = summaryRangeStore((state) => state.customTo);
   const smartPaydays = summaryRangeStore((state) => state.smartPaydays);
+  const canNavigateCycles = summaryMode !== "custom-date" || Boolean(customFrom && customTo);
+  const supportsTouch = Platform.OS !== "web" || (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0);
+  const showCycleButtons = canNavigateCycles && !supportsTouch;
+  const captureGraphPosition = useCallback(() => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+
+    const node = graphAnchorRef.current as HTMLElement | null;
+    if (!node?.getBoundingClientRect) {
+      return;
+    }
+
+    graphViewportTopRef.current = node.getBoundingClientRect().top;
+    graphScrollContainerRef.current = findScrollContainer(node);
+  }, []);
+  const showPreviousCycle = useCallback(() => {
+    if (canNavigateCycles) {
+      captureGraphPosition();
+      setCycleOffset((value) => value - 1);
+    }
+  }, [canNavigateCycles, captureGraphPosition]);
+  const showNextCycle = useCallback(() => {
+    captureGraphPosition();
+    setCycleOffset((value) => Math.min(0, value + 1));
+  }, [captureGraphPosition]);
+  const cyclePanResponder = useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => (
+        supportsTouch &&
+        canNavigateCycles &&
+        Math.abs(gesture.dx) > 12 &&
+        Math.abs(gesture.dx) > Math.abs(gesture.dy)
+      ),
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx < -50) {
+          showPreviousCycle();
+        } else if (gesture.dx > 50 && cycleOffset < 0) {
+          showNextCycle();
+        }
+      },
+    }),
+    [canNavigateCycles, cycleOffset, showNextCycle, showPreviousCycle, supportsTouch],
+  );
+  useEffect(() => {
+    setCycleOffset(0);
+  }, [customFrom, customTo, smartPaydays, summaryMode]);
   const range = resolveSummaryRange({
     mode: summaryMode,
     customFrom,
     customTo,
     smartPaydays,
+    cycleOffset,
   });
   const userId = user?.id ?? "anonymous";
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
@@ -116,6 +180,32 @@ export default function ReportsScreen() {
       return results.flat();
     },
   });
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web" || graphViewportTopRef.current === null) {
+      return;
+    }
+
+    const restorePosition = () => {
+      const node = graphAnchorRef.current as HTMLElement | null;
+      const scrollContainer = graphScrollContainerRef.current;
+      if (!node?.getBoundingClientRect || !scrollContainer) {
+        return;
+      }
+
+      const delta = node.getBoundingClientRect().top - graphViewportTopRef.current!;
+      if (Math.abs(delta) >= 1) {
+        scrollContainer.scrollTop += delta;
+      }
+    };
+
+    restorePosition();
+    const frame = requestAnimationFrame(restorePosition);
+    const timer = setTimeout(restorePosition, 80);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [range.key, transactionsQuery.data, budgetsQuery.data]);
   const offlineDrafts = drafts.filter((transaction) => {
     if (transaction.userId !== userId) {
       return false;
@@ -148,8 +238,8 @@ export default function ReportsScreen() {
     () => buildAdvancedAnalytics(report, transactions, historyTransactions, range, forecast.projectedTotal),
     [forecast.projectedTotal, historyTransactions, report, range, transactions],
   );
-  const isPayCycle = range.title === "Current pay cycle";
-  const isAllTime = range.title === "All time";
+  const isPayCycle = summaryMode === "smart-pay-cycle";
+  const isAllTime = summaryMode === "all-time";
   const useSideInsights = width >= 1080;
   const forecastEndLabel = isPayCycle ? "Forecast to cycle end" : isAllTime ? "Forecast to year end" : "Forecast to month end";
   const trendLabel = isPayCycle ? "Cycle trend delta" : isAllTime ? "Year-end trend delta" : "Monthly trend delta";
@@ -230,8 +320,6 @@ export default function ReportsScreen() {
           <ForecastMetric label="Actual" value={formatMoney(forecast.actualTotal, user?.currency ?? "USD")} />
           <ForecastMetric label="Projected" value={formatMoney(forecast.projectedTotal, user?.currency ?? "USD")} />
           <ForecastMetric label="Likely range" value={`${formatMoney(forecast.forecastLow, user?.currency ?? "USD")}–${formatMoney(forecast.forecastHigh, user?.currency ?? "USD")}`} />
-          <ForecastMetric label="Budget variance" value={forecast.budget.variance === null ? "No budget" : formatMoney(forecast.budget.variance, user?.currency ?? "USD")} tone={forecast.budget.variance !== null && forecast.budget.variance < 0 ? "negative" : "positive"} />
-          <ForecastMetric label="Safe daily spend" value={forecast.budget.remainingDaily === null ? "No budget" : formatMoney(forecast.budget.remainingDaily, user?.currency ?? "USD")} />
         </View>
         {forecast.dataQualityNotes.slice(0, 2).map((note) => <Text key={note} style={styles.dataNote}>{note}</Text>)}
       </Card>
@@ -240,26 +328,37 @@ export default function ReportsScreen() {
           title="Insights"
           subtitle="Spending patterns, pace, and forecast drivers."
         />
-        {!hasTransactions ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No insights yet.</Text>
+        <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
+          <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
+            <View ref={graphAnchorRef} {...cyclePanResponder.panHandlers}>
+              <ForecastChart
+                transactions={transactions}
+                forecast={forecast}
+                currency={user?.currency ?? "USD"}
+                range={range}
+                cycleOffset={cycleOffset}
+                showCycleButtons={showCycleButtons}
+                showPreviousCycle={showPreviousCycle}
+                showNextCycle={showNextCycle}
+                showSwipeHint={supportsTouch && canNavigateCycles}
+              />
+            </View>
+            {!hasTransactions ? (
+              <Text style={styles.emptyText}>No spending recorded in this period. Swipe right or use Next to return.</Text>
+            ) : null}
+            {hasTransactions && useSideInsights && showDetails ? <View style={styles.nerdGrid}>{belowForecastTiles}</View> : null}
           </View>
-        ) : (
-          <>
-            <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
-              <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
-                <ForecastChart transactions={transactions} forecast={forecast} currency={user?.currency ?? "USD"} range={range} />
-                {useSideInsights && showDetails ? <View style={styles.nerdGrid}>{belowForecastTiles}</View> : null}
-              </View>
+          {hasTransactions ? (
               <View style={[styles.nerdGrid, useSideInsights && styles.nerdGridSide]}>
                 {useSideInsights ? (showDetails ? sideStatTiles : compactStatTiles) : (showDetails ? statTiles : compactStatTiles)}
               </View>
-            </View>
-            <View style={styles.detailToggle}>
-              <PillButton label={showDetails ? "Hide details" : "Show more insights"} tone="ghost" onPress={() => setShowDetails((value) => !value)} />
-            </View>
-          </>
-        )}
+          ) : null}
+        </View>
+        {hasTransactions ? (
+          <View style={styles.detailToggle}>
+            <PillButton label={showDetails ? "Hide details" : "Show more insights"} tone="ghost" onPress={() => setShowDetails((value) => !value)} />
+          </View>
+        ) : null}
       </Card>
       <Card>
         <SectionTitle title="Spending drivers" subtitle="Recurring items, concentration, and unusual activity." />
@@ -458,12 +557,38 @@ function describeStat(label: string) {
   return descriptions[label] ?? "Calculated from the transactions in your selected summary range.";
 }
 
-function ForecastChart({ transactions, forecast, currency, range }: { transactions: Transaction[]; forecast: ForecastAnalysis; currency: string; range: ResolvedSummaryRange }) {
+function ForecastChart({
+  transactions,
+  forecast,
+  currency,
+  range,
+  cycleOffset,
+  showCycleButtons,
+  showPreviousCycle,
+  showNextCycle,
+  showSwipeHint,
+}: {
+  transactions: Transaction[];
+  forecast: ForecastAnalysis;
+  currency: string;
+  range: ResolvedSummaryRange;
+  cycleOffset: number;
+  showCycleButtons: boolean;
+  showPreviousCycle: () => void;
+  showNextCycle: () => void;
+  showSwipeHint: boolean;
+}) {
   const { width } = useWindowDimensions();
+  const isPayCycle = range.key.startsWith("smart-pay-cycle:");
+  const isYearCycle = range.key.startsWith("all-time:");
+  const isMonthCycle = /^\d{4}-\d{2}$/.test(range.key);
+  const isHistoricalCycle = cycleOffset < 0;
+  const periodEndLabel = isPayCycle ? "Cycle end" : isYearCycle ? "Year end" : isMonthCycle ? "Month end" : "Period end";
   const projected = forecast.projectedTotal;
   const { actualPoints, projectedPoints, confidenceBand, currentPoint, spent, points } = buildForecastChart(transactions, forecast.projectedTotal, range, forecast.points);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
   const [plotWidth, setPlotWidth] = useState(0);
+  const [isChartHovered, setIsChartHovered] = useState(false);
   const selectedPoint = selectedPointIndex === null ? undefined : points[selectedPointIndex];
   // A floating callout cannot reliably clear a data point in a narrow chart.
   // Use a reserved row below the axes on phones so the marker always remains
@@ -495,13 +620,27 @@ function ForecastChart({ transactions, forecast, currency, range }: { transactio
   const chartInteractionProps = Platform.OS === "web"
     ? ({ onMouseMove: selectNearestPoint, onClick: selectNearestPoint } as any)
     : ({ onPress: selectNearestPoint } as any);
+  const chartHoverProps = Platform.OS === "web"
+    ? ({
+        onMouseEnter: () => setIsChartHovered(true),
+        onMouseLeave: () => {
+          setIsChartHovered(false);
+          setSelectedPointIndex(null);
+        },
+      } as any)
+    : {};
 
   return (
-    <View style={styles.forecastChart}>
+    <View style={styles.forecastChart} {...chartHoverProps}>
       <View style={styles.forecastHeader}>
-        <View>
-          <Text style={styles.forecastTitle}>{range.title === "Current pay cycle" ? "Pay-cycle forecast" : range.title === "All time" ? "Year-end forecast" : "Month-end forecast"}</Text>
+        <View style={styles.forecastHeading}>
+          <Text style={styles.forecastTitle}>
+            {isHistoricalCycle
+              ? isPayCycle ? "Pay-cycle summary" : isYearCycle ? "Year summary" : isMonthCycle ? "Month summary" : "Period summary"
+              : isPayCycle ? "Pay-cycle forecast" : isYearCycle ? "Year-end forecast" : isMonthCycle ? "Month forecast" : "Period forecast"}
+          </Text>
           <Text style={styles.statSubvalue}>{formatMoney(spent, currency)} actual · {formatMoney(projected, currency)} projected</Text>
+          {range.subtitle ? <Text style={styles.forecastCycleLabel}>{range.subtitle}</Text> : null}
         </View>
         <Text style={styles.statSubvalue}>{formatMoney(forecast.forecastLow, currency)}–{formatMoney(forecast.forecastHigh, currency)} likely range · {forecast.confidenceLabel} confidence</Text>
         <View style={styles.forecastLegend}>
@@ -511,6 +650,26 @@ function ForecastChart({ transactions, forecast, currency, range }: { transactio
           <Text style={styles.legendText}>Projected</Text>
         </View>
       </View>
+      {showCycleButtons && isChartHovered ? (
+        <>
+          <Pressable
+            accessibilityLabel="Show previous cycle"
+            onPress={showPreviousCycle}
+            style={[styles.cycleButton, styles.cycleButtonPrevious]}
+          >
+            <Text style={styles.cycleButtonText}>‹</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Show next cycle"
+            disabled={cycleOffset === 0}
+            onPress={showNextCycle}
+            style={[styles.cycleButton, styles.cycleButtonNext, cycleOffset === 0 && styles.cycleButtonDisabled]}
+          >
+            <Text style={[styles.cycleButtonText, styles.cycleButtonTextNext]}>‹</Text>
+          </Pressable>
+        </>
+      ) : null}
+      {showSwipeHint ? <Text style={styles.swipeHint}>Swipe left for the previous cycle · swipe right to return</Text> : null}
       <View
         style={styles.forecastPlot}
         onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}
@@ -519,7 +678,6 @@ function ForecastChart({ transactions, forecast, currency, range }: { transactio
           width="100%"
           height={158}
           viewBox="0 0 520 158"
-          {...(Platform.OS === "web" ? ({ onMouseLeave: () => setSelectedPointIndex(null) } as any) : {})}
         >
           <Line x1="24" y1="132" x2="500" y2="132" stroke={theme.colors.border} strokeWidth="1" />
           {selectedPoint ? <Line x1={selectedPoint.x} y1="16" x2={selectedPoint.x} y2="132" stroke={theme.colors.border} strokeDasharray="4 5" /> : null}
@@ -534,9 +692,11 @@ function ForecastChart({ transactions, forecast, currency, range }: { transactio
       </View>
       <View style={styles.forecastAxis}>
         {showStartAxisLabel ? <Text style={[styles.statSubvalue, styles.axisStart]}>Start</Text> : null}
-        <Text style={[styles.statSubvalue, styles.axisToday, { left: `${(currentPoint.x / 520) * 100}%` }]}>Today</Text>
+        <Text style={[styles.statSubvalue, styles.axisToday, { left: `${(currentPoint.x / 520) * 100}%` }]}>
+          {isHistoricalCycle ? periodEndLabel : "Today"}
+        </Text>
         {showEndAxisLabel ? (
-          <Text style={[styles.statSubvalue, styles.axisEnd]}>{range.title === "Current pay cycle" ? "Cycle end" : range.title === "All time" ? "Year end" : "Month end"}</Text>
+          <Text style={[styles.statSubvalue, styles.axisEnd]}>{periodEndLabel}</Text>
         ) : null}
       </View>
       {selectedPoint && useDockedPointDetail ? <ForecastPointDetail point={selectedPoint} currency={currency} /> : null}
@@ -948,6 +1108,43 @@ function formatHourLabel(hour: number) {
 }
 
 const styles = StyleSheet.create({
+  cycleButton: {
+    alignItems: "center",
+    backgroundColor: theme.colors.field,
+    borderColor: theme.colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    position: "absolute",
+    top: "50%",
+    transform: [{ translateY: -18 }],
+    width: 36,
+    zIndex: 3,
+  },
+  cycleButtonPrevious: {
+    left: 8,
+  },
+  cycleButtonNext: {
+    right: 8,
+  },
+  cycleButtonDisabled: {
+    opacity: 0.35,
+  },
+  cycleButtonText: {
+    color: theme.colors.ink,
+    fontSize: 24,
+    fontWeight: "700",
+    lineHeight: 26,
+  },
+  cycleButtonTextNext: {
+    transform: [{ rotate: "180deg" }],
+  },
+  swipeHint: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    marginBottom: 4,
+  },
   summaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1208,6 +1405,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   forecastChart: {
+    position: "relative",
     marginBottom: 18,
     padding: 16,
     borderWidth: 1,
@@ -1222,10 +1420,19 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
+  forecastHeading: {
+    flexGrow: 1,
+    gap: 2,
+    minWidth: 180,
+  },
   forecastTitle: {
     color: theme.colors.ink,
     fontSize: 16,
     fontWeight: "800",
+  },
+  forecastCycleLabel: {
+    color: theme.colors.muted,
+    fontSize: 11,
   },
   forecastLegend: {
     flexDirection: "row",
