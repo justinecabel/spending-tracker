@@ -2,12 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { useQuery } from "@tanstack/react-query";
 import { Modal, PanResponder, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Line, Polygon, Polyline, Rect } from "react-native-svg";
-import { buildForecastAnalysis, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
+import { buildForecastAnalysis, buildSimulatedDebtScore, type Debt, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
-import { formatMoney } from "../../src/lib/date";
+import { formatDateTimeLabel, formatMoney } from "../../src/lib/date";
 import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange, type ResolvedSummaryRange } from "../../src/lib/summary-range";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
 import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
@@ -79,22 +79,27 @@ export default function ReportsScreen() {
     setCycleOffset((value) => Math.min(0, value + 1));
   }, [captureGraphPosition]);
   const cyclePanResponder = useMemo(
-    () => PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) => (
-        supportsTouch &&
+    () => {
+      const isHorizontalSwipe = (_: unknown, gesture: { dx: number; dy: number }) => (
         canNavigateCycles &&
-        Math.abs(gesture.dx) > 12 &&
+        Math.abs(gesture.dx) > 8 &&
         Math.abs(gesture.dx) > Math.abs(gesture.dy)
-      ),
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dx < -50) {
-          showPreviousCycle();
-        } else if (gesture.dx > 50 && cycleOffset < 0) {
-          showNextCycle();
-        }
-      },
-    }),
-    [canNavigateCycles, cycleOffset, showNextCycle, showPreviousCycle, supportsTouch],
+      );
+
+      return PanResponder.create({
+        onMoveShouldSetPanResponder: isHorizontalSwipe,
+        onMoveShouldSetPanResponderCapture: isHorizontalSwipe,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderRelease: (_, gesture) => {
+          if (gesture.dx < -50) {
+            showPreviousCycle();
+          } else if (gesture.dx > 50 && cycleOffset < 0) {
+            showNextCycle();
+          }
+        },
+      });
+    },
+    [canNavigateCycles, cycleOffset, showNextCycle, showPreviousCycle],
   );
   useEffect(() => {
     setCycleOffset(0);
@@ -179,6 +184,10 @@ export default function ReportsScreen() {
       );
       return results.flat();
     },
+  });
+  const debtsQuery = useQuery({
+    queryKey: ["debts", userId],
+    queryFn: api.debts,
   });
   useLayoutEffect(() => {
     if (Platform.OS !== "web" || graphViewportTopRef.current === null) {
@@ -298,31 +307,48 @@ export default function ReportsScreen() {
       onRefresh={async () => {
         setIsRefreshing(true);
         try {
-          await Promise.all([transactionsQuery.refetch(), historyQuery.refetch(), categoriesQuery.refetch(), budgetsQuery.refetch()]);
+          await Promise.all([transactionsQuery.refetch(), historyQuery.refetch(), categoriesQuery.refetch(), budgetsQuery.refetch(), debtsQuery.refetch()]);
         } finally {
           setIsRefreshing(false);
         }
       }}
     >
-      <PageHeader title="Reports" subtitle={range.subtitle ? `${range.title} · ${range.subtitle}` : range.title} />
+      <PageHeader
+        title="Reports"
+        subtitle={range.subtitle ? `${range.title} · ${range.subtitle}` : range.title}
+        subtitleMode="inline"
+      />
       <Card>
         <SectionTitle
           title="Category breakdown"
           subtitle={range.subtitle ? `${range.title} · ${range.subtitle}` : range.title}
+          subtitleMode="inline"
         />
         {queryErrorMessage && !hasTransactions ? <Text style={styles.errorText}>{queryErrorMessage}</Text> : null}
         {report ? <ReportCharts report={report} currency={user?.currency ?? "USD"} /> : null}
         <CategoryBudgetBars categories={forecast.categories} currency={user?.currency ?? "USD"} />
       </Card>
       <Card>
-        <SectionTitle title="Forecast summary" subtitle={`${forecast.confidenceLabel} confidence · ${forecast.futureDays} days remaining`} />
+        <SectionTitle
+          title="Forecast summary"
+          subtitle={`${forecast.confidenceLabel} confidence · ${forecast.futureDays} days remaining`}
+          subtitleMode="inline"
+        />
         <View style={styles.summaryGrid}>
           <ForecastMetric label="Actual" value={formatMoney(forecast.actualTotal, user?.currency ?? "USD")} />
           <ForecastMetric label="Projected" value={formatMoney(forecast.projectedTotal, user?.currency ?? "USD")} />
           <ForecastMetric label="Likely range" value={`${formatMoney(forecast.forecastLow, user?.currency ?? "USD")}–${formatMoney(forecast.forecastHigh, user?.currency ?? "USD")}`} />
         </View>
-        {forecast.dataQualityNotes.slice(0, 2).map((note) => <Text key={note} style={styles.dataNote}>{note}</Text>)}
+        <View style={styles.dataNotes}>
+          {forecast.dataQualityNotes.slice(0, 2).map((note) => <Text key={note} style={styles.dataNote}>{note}</Text>)}
+        </View>
       </Card>
+      <DebtInsights
+        debts={debtsQuery.data ?? []}
+        currency={user?.currency ?? "USD"}
+        loading={debtsQuery.isPending}
+        error={debtsQuery.error?.message}
+      />
       <Card>
         <SectionTitle
           title="Insights"
@@ -330,7 +356,11 @@ export default function ReportsScreen() {
         />
         <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
           <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
-            <View ref={graphAnchorRef} {...cyclePanResponder.panHandlers}>
+            <View
+              ref={graphAnchorRef}
+              style={Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : undefined}
+              {...cyclePanResponder.panHandlers}
+            >
               <ForecastChart
                 transactions={transactions}
                 forecast={forecast}
@@ -391,6 +421,126 @@ function ForecastMetric({ label, value, tone = "neutral" }: { label: string; val
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={[styles.forecastMetricValue, tone === "positive" && styles.statValuePositive, tone === "negative" && styles.statValueNegative]}>{value}</Text>
     </View>
+  );
+}
+
+function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; currency: string; loading: boolean; error?: string }) {
+  const now = Date.now();
+  const inSevenDays = now + 7 * 24 * 60 * 60 * 1000;
+  const inThirtyDays = now + 30 * 24 * 60 * 60 * 1000;
+  const open = debts.filter((debt) => !debt.paidAt);
+  const paid = debts.filter((debt) => Boolean(debt.paidAt));
+  const overdue = open.filter((debt) => new Date(debt.dueAt).getTime() < now);
+  const future = open
+    .filter((debt) => new Date(debt.dueAt).getTime() >= now)
+    .sort((left, right) => new Date(left.dueAt).getTime() - new Date(right.dueAt).getTime());
+  const recentPayments = [...paid]
+    .sort((left, right) => new Date(right.paidAt!).getTime() - new Date(left.paidAt!).getTime())
+    .slice(0, 3);
+  const outstanding = open.reduce((sum, debt) => sum + debt.amount, 0);
+  const overdueTotal = overdue.reduce((sum, debt) => sum + debt.amount, 0);
+  const dueInSevenDays = future
+    .filter((debt) => new Date(debt.dueAt).getTime() <= inSevenDays)
+    .reduce((sum, debt) => sum + debt.amount, 0);
+  const dueInThirtyDays = future
+    .filter((debt) => new Date(debt.dueAt).getTime() <= inThirtyDays)
+    .reduce((sum, debt) => sum + debt.amount, 0);
+  const paidTotal = paid.reduce((sum, debt) => sum + debt.amount, 0);
+  const largestOpen = [...open].sort((left, right) => right.amount - left.amount)[0];
+  const simulatedScore = buildSimulatedDebtScore(debts);
+  const monthlyObligations = future.reduce<Array<{ key: string; label: string; total: number; count: number }>>((months, debt) => {
+    const due = new Date(debt.dueAt);
+    const key = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}`;
+    const existing = months.find((month) => month.key === key);
+    if (existing) {
+      existing.total += debt.amount;
+      existing.count += 1;
+    } else {
+      months.push({
+        key,
+        label: new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(due),
+        total: debt.amount,
+        count: 1,
+      });
+    }
+    return months;
+  }, []).slice(0, 4);
+
+  return (
+    <Card>
+      <SectionTitle
+        title="Debt insights"
+        subtitle="Outstanding obligations, payment progress, and an educational simulated score. The simulated score is not a credit-bureau or lender score."
+      />
+      {loading ? <Text style={styles.emptyText}>Loading debt insights...</Text> : null}
+      {error && !debts.length ? <Text style={styles.errorText}>{error}</Text> : null}
+      {!loading ? (
+        <>
+          <View style={styles.nerdGrid}>
+            <StatTile label="Simulated credit score" value={String(simulatedScore.score)} subvalue={`${simulatedScore.band}, ${simulatedScore.confidence.toLowerCase()} confidence`} tone={simulatedScore.score < 580 ? "negative" : simulatedScore.score >= 740 ? "positive" : "neutral"} />
+            <StatTile label="Open debt items" value={String(open.length)} subvalue={`${formatMoney(outstanding, currency)} outstanding`} />
+            <StatTile label="Overdue debt" value={formatMoney(overdueTotal, currency)} subvalue={`${overdue.length} overdue item${overdue.length === 1 ? "" : "s"}`} tone={overdue.length ? "negative" : "positive"} />
+            <StatTile label="Debt due in 7 days" value={formatMoney(dueInSevenDays, currency)} subvalue="Excludes overdue items" />
+            <StatTile label="Debt due in 30 days" value={formatMoney(dueInThirtyDays, currency)} subvalue="Excludes overdue items" />
+            <StatTile label="Paid debt history" value={formatMoney(paidTotal, currency)} subvalue={`${paid.length} paid item${paid.length === 1 ? "" : "s"}`} tone={paid.length ? "positive" : "neutral"} />
+            <StatTile label="Largest open debt" value={largestOpen?.merchant ?? "None"} subvalue={largestOpen ? formatMoney(largestOpen.amount, currency) : "No unpaid debts"} />
+          </View>
+          <View style={styles.debtDetailsGrid}>
+            <View style={styles.driverColumn}>
+              <Text style={styles.driverTitle}>Simulated score factors</Text>
+              {simulatedScore.factors.map((factor) => (
+                <View key={factor.label} style={styles.driverRow}>
+                  <View style={styles.driverText}>
+                    <Text style={[
+                      styles.driverLabel,
+                      factor.tone === "positive" && styles.statValuePositive,
+                      factor.tone === "negative" && styles.statValueNegative,
+                    ]}>{factor.label}</Text>
+                    <Text style={styles.statSubvalue}>{factor.detail}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+            <View style={styles.driverColumn}>
+              <Text style={styles.driverTitle}>Upcoming bills</Text>
+              {future.length ? future.slice(0, 5).map((debt) => (
+                <View key={debt.id} style={styles.driverRow}>
+                  <View style={styles.driverText}>
+                    <Text style={styles.driverLabel}>{debt.merchant}</Text>
+                    <Text style={styles.statSubvalue}>Due {formatDateTimeLabel(debt.dueAt)}</Text>
+                  </View>
+                  <Text style={styles.driverValue}>{formatMoney(debt.amount, currency)}</Text>
+                </View>
+              )) : <Text style={styles.statSubvalue}>No upcoming unpaid bills.</Text>}
+            </View>
+            <View style={styles.driverColumn}>
+              <Text style={styles.driverTitle}>Monthly obligations</Text>
+              {monthlyObligations.length ? monthlyObligations.map((month) => (
+                <View key={month.key} style={styles.driverRow}>
+                  <View style={styles.driverText}>
+                    <Text style={styles.driverLabel}>{month.label}</Text>
+                    <Text style={styles.statSubvalue}>{month.count} item{month.count === 1 ? "" : "s"}</Text>
+                  </View>
+                  <Text style={styles.driverValue}>{formatMoney(month.total, currency)}</Text>
+                </View>
+              )) : <Text style={styles.statSubvalue}>No future obligations scheduled.</Text>}
+            </View>
+            <View style={styles.driverColumn}>
+              <Text style={styles.driverTitle}>Recent debt payments</Text>
+              {recentPayments.length ? recentPayments.map((debt) => (
+                <View key={debt.id} style={styles.driverRow}>
+                  <View style={styles.driverText}>
+                    <Text style={styles.driverLabel}>{debt.merchant}</Text>
+                    <Text style={styles.statSubvalue}>Paid {formatDateTimeLabel(debt.paidAt!)}</Text>
+                  </View>
+                  <Text style={styles.driverValue}>{formatMoney(debt.amount, currency)}</Text>
+                </View>
+              )) : <Text style={styles.statSubvalue}>No debt payments recorded yet.</Text>}
+            </View>
+          </View>
+        </>
+      ) : null}
+    </Card>
   );
 }
 
@@ -542,6 +692,13 @@ function describeStat(label: string) {
     "Category shift": "Shows the category whose spending share changed the most in the last seven days compared with the prior seven days.",
     "Weekend pattern": "The portion of your recent seven-day spend that happened on a weekend.",
     "Spending-free days": "The number of days without a recorded expense in the last seven days.",
+    "Open debt items": "The number of debts that have not been marked paid, with their combined outstanding amount shown below.",
+    "Overdue debt": "The portion of unpaid debt whose due date has already passed.",
+    "Debt due in 7 days": "Unpaid debt due during the next seven days. Already overdue items are excluded.",
+    "Debt due in 30 days": "Unpaid debt due during the next thirty days. Already overdue items are excluded.",
+    "Paid debt history": "The combined amount of debts that have been marked paid.",
+    "Largest open debt": "The highest-value debt that has not yet been marked paid.",
+    "Simulated credit score": "An educational 300–850 estimate based only on debt activity recorded in this app: on-time payments, overdue items, completed payments, and history depth. It is not a bureau or lender score.",
   };
 
   if (label.includes("Forecast")) {
@@ -1143,6 +1300,7 @@ const styles = StyleSheet.create({
   swipeHint: {
     color: theme.colors.muted,
     fontSize: 11,
+    lineHeight: 16,
     marginBottom: 4,
   },
   summaryGrid: {
@@ -1163,20 +1321,20 @@ const styles = StyleSheet.create({
   },
   forecastMetricValue: {
     color: theme.colors.ink,
-    fontSize: 18,
+    ...theme.typography.subheading,
     fontWeight: "800",
   },
   dataNote: {
     color: theme.colors.muted,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 8,
+    ...theme.typography.label,
+  },
+  dataNotes: {
+    gap: theme.spacing.xs,
   },
   categoryForecastSection: {
     borderTopColor: theme.colors.border,
     borderTopWidth: 1,
     gap: 10,
-    marginTop: 18,
     paddingTop: 16,
   },
   categoryForecastRow: {
@@ -1190,6 +1348,7 @@ const styles = StyleSheet.create({
   categoryForecastName: {
     color: theme.colors.ink,
     fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
     marginBottom: 2,
   },
@@ -1201,6 +1360,7 @@ const styles = StyleSheet.create({
   barLabel: {
     color: theme.colors.muted,
     fontSize: 11,
+    lineHeight: 16,
     width: 58,
   },
   barTrack: {
@@ -1217,6 +1377,7 @@ const styles = StyleSheet.create({
   barValue: {
     color: theme.colors.muted,
     fontSize: 11,
+    lineHeight: 16,
     minWidth: 74,
     textAlign: "right",
   },
@@ -1224,6 +1385,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 18,
+  },
+  debtDetailsGrid: {
+    borderTopColor: theme.colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 18,
+    paddingTop: 16,
+  },
+  scoreDisclaimer: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 4,
   },
   patternDetails: {
     borderTopColor: theme.colors.border,
@@ -1259,7 +1434,7 @@ const styles = StyleSheet.create({
   },
   driverTitle: {
     color: theme.colors.ink,
-    fontSize: 15,
+    ...theme.typography.body,
     fontWeight: "800",
   },
   driverRow: {
@@ -1279,16 +1454,17 @@ const styles = StyleSheet.create({
   driverLabel: {
     color: theme.colors.ink,
     fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
   },
   driverValue: {
     color: theme.colors.ink,
     fontSize: 14,
+    lineHeight: 20,
     fontWeight: "800",
   },
   detailToggle: {
     alignItems: "flex-start",
-    marginTop: 12,
   },
   metrics: {
     flexDirection: "row",
@@ -1354,16 +1530,18 @@ const styles = StyleSheet.create({
   statModalLabel: {
     color: theme.colors.muted,
     fontSize: 16,
+    lineHeight: 22,
     fontWeight: "700",
   },
   statModalValue: {
     color: theme.colors.ink,
     fontSize: 30,
+    lineHeight: 36,
     fontWeight: "800",
   },
   statModalSubvalue: {
     color: theme.colors.muted,
-    fontSize: 15,
+    ...theme.typography.body,
   },
   statModalDescription: {
     color: theme.colors.ink,
@@ -1386,12 +1564,13 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "600",
   },
   statValue: {
     color: theme.colors.ink,
     fontSize: 22,
+    lineHeight: 28,
     fontWeight: "800",
   },
   statValuePositive: {
@@ -1402,7 +1581,7 @@ const styles = StyleSheet.create({
   },
   statSubvalue: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
   },
   forecastChart: {
     position: "relative",
@@ -1428,11 +1607,13 @@ const styles = StyleSheet.create({
   forecastTitle: {
     color: theme.colors.ink,
     fontSize: 16,
+    lineHeight: 22,
     fontWeight: "800",
   },
   forecastCycleLabel: {
     color: theme.colors.muted,
     fontSize: 11,
+    lineHeight: 16,
   },
   forecastLegend: {
     flexDirection: "row",
@@ -1456,11 +1637,13 @@ const styles = StyleSheet.create({
   pointTooltipLabel: {
     color: theme.colors.muted,
     fontSize: 12,
+    lineHeight: 17,
     fontWeight: "600",
   },
   pointTooltipValue: {
     color: theme.colors.ink,
     fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
   },
   forecastTooltip: {
@@ -1473,7 +1656,7 @@ const styles = StyleSheet.create({
   },
   forecastTooltipText: {
     color: theme.colors.ink,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "700",
   },
   legendLine: {
@@ -1489,7 +1672,7 @@ const styles = StyleSheet.create({
   },
   legendText: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
   },
   forecastAxis: {
     height: 22,
@@ -1518,9 +1701,11 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: theme.colors.muted,
-    fontSize: 15,
+    ...theme.typography.body,
   },
   errorText: {
     color: theme.colors.warning,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

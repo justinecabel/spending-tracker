@@ -236,12 +236,13 @@ const styles = StyleSheet.create({
   },
   metaLabel: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "600",
   },
   codeText: {
     color: theme.colors.ink,
     fontSize: 28,
+    lineHeight: 34,
     fontWeight: "800",
     letterSpacing: 1.4,
   },
@@ -268,11 +269,12 @@ const styles = StyleSheet.create({
   savedProfileName: {
     color: theme.colors.ink,
     fontSize: 16,
+    lineHeight: 22,
     fontWeight: "700",
   },
   savedProfileMeta: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
   },
   dismissButton: {
     borderRadius: 999,
@@ -319,12 +321,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     color: theme.colors.ink,
     fontSize: 22,
+    lineHeight: 28,
     fontWeight: "800",
   },
   modalBody: {
     color: theme.colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
+    ...theme.typography.body,
   },
   modalActions: {
     flexDirection: "row",

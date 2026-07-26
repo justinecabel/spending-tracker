@@ -1,10 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Modal, Platform, StyleSheet, Text, TextInput, useColorScheme, useWindowDimensions, View } from "react-native";
-import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
+import { Card, FormModal, HelpTooltip, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { TransferOutPanel } from "../../src/components/transfer-session";
 import { api } from "../../src/lib/api";
+import { collectClientDiagnostics, runNotificationDiagnostic } from "../../src/lib/client-diagnostics";
 import { nanoid } from "nanoid/non-secure";
 import { appearanceStore, getAppearanceProfileKey } from "../../src/state/appearance";
 import { summaryRangeStore, type SummaryRangeMode } from "../../src/state/summary-range";
@@ -56,6 +57,8 @@ export default function SettingsScreen() {
   const [accentError, setAccentError] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isOwnItModalOpen, setIsOwnItModalOpen] = useState(false);
+  const [isDeveloperModalOpen, setIsDeveloperModalOpen] = useState(false);
+  const [bugReportText, setBugReportText] = useState("");
   const [pendingForgetProfileId, setPendingForgetProfileId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -90,6 +93,8 @@ export default function SettingsScreen() {
     updatePreferences.reset();
     importDeviceDataMutation.reset();
     ownDeviceDataMutation.reset();
+    diagnosticMutation.reset();
+    bugReportMutation.reset();
   }, [activeProfile, user?.id]);
 
   const updatePreferences = useMutation({
@@ -109,6 +114,27 @@ export default function SettingsScreen() {
     onSuccess: ({ deviceUser }) => {
       updateDeviceProfileUser(deviceUser);
       setIsOwnItModalOpen(false);
+    },
+  });
+  const diagnosticMutation = useMutation({
+    mutationFn: async () => {
+      const notificationTest = await runNotificationDiagnostic();
+      const client = await collectClientDiagnostics();
+      const report = await api.submitClientDiagnostic({ kind: "notification-diagnostic", client, notificationTest });
+      return { report, notificationTest };
+    },
+  });
+  const bugReportMutation = useMutation({
+    mutationFn: async () => {
+      const userText = bugReportText.trim();
+      if (!userText) throw new Error("Describe the bug before sending.");
+      const client = await collectClientDiagnostics();
+      return api.submitClientDiagnostic({
+        kind: "bug-report",
+        client,
+        notificationTest: null,
+        userText,
+      });
     },
   });
 
@@ -264,14 +290,19 @@ export default function SettingsScreen() {
         ) : null}
         {summaryMode === "smart-pay-cycle" ? (
           <View style={styles.rangeEditor}>
-            <Text style={styles.label}>Paydays</Text>
+            <View style={styles.labelWithHelp}>
+              <Text style={styles.label}>Paydays</Text>
+              <HelpTooltip
+                label="About payday format"
+                text="Use comma-separated days of the month, such as 15,30 or 5,20,30."
+              />
+            </View>
             <TextInput
               value={smartPaydays}
               onChangeText={setSmartPaydays}
               placeholder="15,30"
               style={styles.rangeInput}
             />
-            <Text style={styles.helperText}>Comma-separated days of the month. Example: `15,30` or `5,20,30`.</Text>
           </View>
         ) : null}
       </Card>
@@ -299,7 +330,13 @@ export default function SettingsScreen() {
           />
         </View>
         <View style={styles.accentEditor}>
-          <Text style={styles.label}>Custom colors</Text>
+          <View style={styles.labelWithHelp}>
+            <Text style={styles.label}>Custom colors</Text>
+            <HelpTooltip
+              label="About custom colors"
+              text="Primary changes buttons and highlights. Secondary changes soft selected and supporting surfaces."
+            />
+          </View>
           <View style={styles.colorEditorRow}>
             <Text style={styles.colorLabel}>Primary</Text>
             <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(accentDraft) ?? theme.colors.accent }]}>
@@ -385,7 +422,6 @@ export default function SettingsScreen() {
             />
           ) : null}
           {accentError ? <Text style={styles.error}>{accentError}</Text> : null}
-          <Text style={styles.helperText}>Primary changes buttons and highlights. Secondary changes soft selected and supporting surfaces.</Text>
         </View>
       </Card>
 
@@ -440,6 +476,97 @@ export default function SettingsScreen() {
       <Card>
         <TransferOutPanel />
       </Card>
+
+      <Card>
+        <SectionTitle
+          title="Developer options"
+          subtitle="Run troubleshooting tools and send technical reports for remote debugging."
+        />
+        <PillButton
+          label="Open diagnostics"
+          tone="ghost"
+          onPress={() => {
+            diagnosticMutation.reset();
+            bugReportMutation.reset();
+            setBugReportText("");
+            setIsDeveloperModalOpen(true);
+          }}
+        />
+      </Card>
+
+      <FormModal
+        visible={isDeveloperModalOpen}
+        title="Developer tools"
+        subtitle="Choose a diagnostic to run on this device."
+        size="wide"
+        onClose={() => setIsDeveloperModalOpen(false)}
+      >
+        <View style={styles.diagnosticList}>
+          <View style={styles.diagnosticItem}>
+            <View style={styles.labelWithHelp}>
+              <Text style={styles.diagnosticItemTitle}>Notification diagnostics</Text>
+              <HelpTooltip
+                label="About notification diagnostics"
+                text="Tests notification delivery and reports PWA mode, browser and OS hints, screen, service-worker state, storage, connection, locale, and device capabilities. It does not read passwords, files, messages, contacts, or precise location. The server records the network address and standard request headers it normally receives."
+              />
+            </View>
+            <PillButton
+              label={diagnosticMutation.isPending ? "Testing and sending..." : "Run notification test"}
+              onPress={() => {
+                if (!diagnosticMutation.isPending) diagnosticMutation.mutate();
+              }}
+            />
+            {diagnosticMutation.data ? (
+              <View style={styles.diagnosticResult}>
+                <Text style={styles.diagnosticSuccess}>Diagnostic report sent</Text>
+                <Text style={styles.value}>Report ID: {diagnosticMutation.data.report.reportId}</Text>
+                <Text style={styles.helperText}>
+                  Notification result: {diagnosticMutation.data.notificationTest.error
+                    ?? `sent using ${diagnosticMutation.data.notificationTest.deliveryMethod}.`}
+                </Text>
+              </View>
+            ) : null}
+            {diagnosticMutation.error ? (
+              <Text style={styles.error}>{diagnosticMutation.error.message}</Text>
+            ) : null}
+          </View>
+          <View style={styles.diagnosticItem}>
+            <View style={styles.labelWithHelp}>
+              <Text style={styles.diagnosticItemTitle}>Report a bug</Text>
+              <HelpTooltip
+                label="About bug reports"
+                text="Describe what happened. The report attaches PWA, browser, OS, screen, service-worker, storage, connection, locale, and device capability details."
+              />
+            </View>
+            <TextInput
+              value={bugReportText}
+              onChangeText={(value) => {
+                setBugReportText(value.slice(0, 4_000));
+                if (bugReportMutation.error) bugReportMutation.reset();
+              }}
+              placeholder="What happened, and what did you expect?"
+              placeholderTextColor={theme.colors.muted}
+              multiline
+              numberOfLines={5}
+              style={styles.bugReportInput}
+            />
+            <Text style={styles.helperText}>{bugReportText.length}/4000 characters</Text>
+            <PillButton
+              label={bugReportMutation.isPending ? "Sending report..." : "Send bug report"}
+              onPress={() => {
+                if (!bugReportMutation.isPending) bugReportMutation.mutate();
+              }}
+            />
+            {bugReportMutation.data ? (
+              <View style={styles.diagnosticResult}>
+                <Text style={styles.diagnosticSuccess}>Bug report sent</Text>
+                <Text style={styles.value}>Report ID: {bugReportMutation.data.reportId}</Text>
+              </View>
+            ) : null}
+            {bugReportMutation.error ? <Text style={styles.error}>{bugReportMutation.error.message}</Text> : null}
+          </View>
+        </View>
+      </FormModal>
 
       <Modal transparent visible={isImportModalOpen} animationType="fade" onRequestClose={() => setIsImportModalOpen(false)}>
         <View style={styles.modalScrim}>
@@ -563,11 +690,17 @@ const styles = StyleSheet.create({
   },
   label: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
+  },
+  labelWithHelp: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
   value: {
     color: theme.colors.ink,
-    fontSize: 18,
+    ...theme.typography.subheading,
     fontWeight: "700",
   },
   switchBlock: {
@@ -614,6 +747,8 @@ const styles = StyleSheet.create({
   },
   colorLabel: {
     color: theme.colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
     width: 76,
   },
@@ -690,11 +825,56 @@ const styles = StyleSheet.create({
   error: {
     marginTop: 8,
     color: theme.colors.warning,
+    fontSize: 14,
+    lineHeight: 20,
   },
   helperText: {
     color: theme.colors.muted,
-    fontSize: 13,
-    lineHeight: 19,
+    ...theme.typography.label,
+  },
+  diagnosticList: {
+    gap: 14,
+  },
+  diagnosticItem: {
+    gap: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.field,
+    padding: 16,
+  },
+  diagnosticItemTitle: {
+    color: theme.colors.ink,
+    ...theme.typography.subheading,
+    fontWeight: "800",
+  },
+  bugReportInput: {
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: theme.colors.card,
+    color: theme.colors.ink,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlignVertical: "top",
+    ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent", resize: "vertical" } as any) : {}),
+  },
+  diagnosticResult: {
+    gap: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.field,
+    padding: 14,
+  },
+  diagnosticSuccess: {
+    color: theme.colors.success,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
   },
   signOutButton: {
     alignSelf: "flex-start",
@@ -705,7 +885,7 @@ const styles = StyleSheet.create({
   },
   signOutButtonText: {
     color: "#B91C1C",
-    fontSize: 15,
+    ...theme.typography.control,
     fontWeight: "700",
   },
   modalScrim: {
@@ -728,12 +908,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     color: theme.colors.ink,
     fontSize: 22,
+    lineHeight: 28,
     fontWeight: "800",
   },
   modalBody: {
     color: theme.colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
+    ...theme.typography.body,
   },
   modalActions: {
     flexDirection: "row",

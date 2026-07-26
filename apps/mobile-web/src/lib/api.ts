@@ -3,9 +3,13 @@ import type {
   Budget,
   BudgetUpsertInput,
   Category,
+  ClientDiagnosticInput,
+  ClientDiagnosticResponse,
   ConsumeTransferTokenInput,
   CreateCategoryInput,
+  CreateDebtInput,
   CreateTransactionInput,
+  Debt,
   ImportDeviceDataInput,
   ImportDeviceDataResult,
   MonthlyReport,
@@ -13,6 +17,7 @@ import type {
   ProfileSlot,
   TransferTokenResponse,
   Transaction,
+  UpdateDebtInput,
   UpdateUserPreferencesInput,
 } from "@spending-tracker/shared";
 import { ensureDeviceId, getLocalDeviceLabel } from "./device";
@@ -141,6 +146,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  submitClientDiagnostic: (input: ClientDiagnosticInput) =>
+    request<ClientDiagnosticResponse>("/diagnostics/client", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   importDeviceData: async (input: Omit<ImportDeviceDataInput, "deviceId">) =>
     request<ImportDeviceDataResult>("/auth/import-device-data", {
       method: "POST",
@@ -182,6 +192,21 @@ export const api = {
     }),
   deleteTransaction: (id: string) =>
     request<void>(`/transactions/${id}`, {
+      method: "DELETE",
+    }),
+  debts: () => request<Debt[]>("/debts"),
+  createDebt: (input: CreateDebtInput) =>
+    request<Debt>("/debts", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateDebt: (id: string, input: UpdateDebtInput) =>
+    request<Debt>(`/debts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteDebt: (id: string) =>
+    request<void>(`/debts/${id}`, {
       method: "DELETE",
     }),
   budgets: (month: string) => request<Budget[]>(`/budgets?month=${month}`),

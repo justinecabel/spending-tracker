@@ -2,9 +2,9 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { storage } from "../lib/storage";
 
-export type TabKey = "home" | "transactions" | "budgets" | "reports" | "settings";
+export type TabKey = "home" | "transactions" | "budgets" | "debts" | "reports" | "settings";
 
-const validTabs: TabKey[] = ["home", "transactions", "reports", "settings"];
+const validTabs: TabKey[] = ["home", "transactions", "debts", "reports", "settings"];
 
 export function normalizeTabKey(value: unknown): TabKey {
   if (typeof value === "string" && validTabs.includes(value as TabKey)) {

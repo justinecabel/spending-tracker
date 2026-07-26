@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   },
   chartTitle: {
     color: theme.colors.ink,
-    fontSize: 18,
+    ...theme.typography.subheading,
     fontWeight: "700",
   },
   pieChartWrap: {
@@ -212,15 +212,17 @@ const styles = StyleSheet.create({
   },
   pieTooltipLabel: {
     color: theme.colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
   },
   pieTooltipValue: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
   },
   pieHint: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
   },
   categoryControls: {
     alignItems: "center",
@@ -246,11 +248,13 @@ const styles = StyleSheet.create({
   },
   categoryControlLabel: {
     color: theme.colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
   },
   categoryControlValue: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "700",
   },
   legend: {
@@ -273,11 +277,13 @@ const styles = StyleSheet.create({
   },
   legendLabel: {
     color: theme.colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
   },
   legendValue: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
   },
   barList: {
     gap: 14,
@@ -294,11 +300,13 @@ const styles = StyleSheet.create({
   },
   barLabel: {
     color: theme.colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
   },
   barMeta: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
     width: 88,
     textAlign: "right",
   },
@@ -318,6 +326,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: theme.colors.muted,
-    fontSize: 15,
+    ...theme.typography.body,
   },
 });

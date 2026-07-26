@@ -5,9 +5,11 @@ import DashboardScreen from "./app/(app)/index";
 import ReportsScreen from "./app/(app)/reports";
 import SettingsScreen from "./app/(app)/settings";
 import TransactionsScreen from "./app/(app)/transactions";
+import DebtsScreen from "./app/(app)/debts";
 import SignInScreen from "./app/sign-in";
 import { useBootstrapSession } from "./src/hooks/use-bootstrap";
 import { useLiveUpdates } from "./src/hooks/use-live-updates";
+import { useDebtReminders } from "./src/hooks/use-debt-reminders";
 import { useOfflineStatus } from "./src/hooks/use-offline-status";
 import { useBackendAvailability } from "./src/hooks/use-backend-availability";
 import { PwaInstallContext, usePwaInstall } from "./src/hooks/use-pwa-install";
@@ -23,6 +25,7 @@ import { applyThemeMode, getPalette, resolveAppearance, theme } from "./src/them
 const tabs: Array<[TabKey, string]> = [
   ["home", "Home"],
   ["transactions", "Transactions"],
+  ["debts", "Debts"],
   ["reports", "Reports"],
   ["settings", "Settings"],
 ];
@@ -32,7 +35,7 @@ function parseTabFromLocation(): TabKey {
     return "home";
   }
 
-  const match = window.location.hash.match(/^#\/(home|transactions|reports|settings)$/);
+  const match = window.location.hash.match(/^#\/(home|transactions|debts|reports|settings)$/);
   return (match?.[1] as TabKey | undefined) ?? "home";
 }
 
@@ -101,6 +104,7 @@ function AppShell() {
   const accessToken = sessionStore((state) => state.accessToken);
   const activeProfile = sessionStore((state) => state.activeProfile);
   const userId = sessionStore((state) => state.user?.id);
+  const userCurrency = sessionStore((state) => state.user?.currency ?? "USD");
   const appearanceProfileKey = getAppearanceProfileKey(activeProfile, userId);
   const appearanceMode = appearanceStore((state) => state.getMode(appearanceProfileKey));
   const customAccent = appearanceStore((state) => state.getAccent(appearanceProfileKey));
@@ -126,6 +130,7 @@ function AppShell() {
   useBootstrapSession();
   useSyncQueue(accessToken ? userId : null);
   useLiveUpdates(Boolean(accessToken));
+  useDebtReminders(Boolean(accessToken), userCurrency);
 
   useEffect(() => {
     applyThemeMode(appearanceMode, deviceScheme, customAccent, customSecondaryAccent);
@@ -142,6 +147,7 @@ function AppShell() {
     queryClient.removeQueries({ queryKey: ["categories"] });
     queryClient.removeQueries({ queryKey: ["transactions"] });
     queryClient.removeQueries({ queryKey: ["budgets"] });
+    queryClient.removeQueries({ queryKey: ["debts"] });
     queryClient.removeQueries({ queryKey: ["report"] });
     queryClient.removeQueries({ queryKey: ["reports"] });
     queryClient.removeQueries({ queryKey: ["me"] });
@@ -308,6 +314,7 @@ function AppShell() {
       <View style={styles.content}>
         {activeTab === "home" ? <DashboardScreen /> : null}
         {activeTab === "transactions" ? <TransactionsScreen /> : null}
+        {activeTab === "debts" ? <DebtsScreen /> : null}
         {activeTab === "reports" ? <ReportsScreen /> : null}
         {activeTab === "settings" ? <SettingsScreen /> : null}
       </View>
@@ -378,7 +385,7 @@ const styles = StyleSheet.create({
     width: 10,
   },
   syncBannerText: {
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "700",
   },
   syncBannerMessage: {
@@ -392,7 +399,7 @@ const styles = StyleSheet.create({
   },
   updateButtonText: {
     color: theme.colors.accentText,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "800",
   },
   tab: {
@@ -410,10 +417,12 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     color: theme.colors.accentSoftText,
+    ...theme.typography.control,
     fontWeight: "700",
   },
   tabLabelCompact: {
     fontSize: 14,
+    lineHeight: 19,
   },
   tabLabelActive: {
     color: theme.colors.accentText,
@@ -452,12 +461,12 @@ const styles = StyleSheet.create({
   },
   splashTitle: {
     display: "none",
-    fontSize: 28,
+    ...theme.typography.pageTitle,
     fontWeight: "800",
   },
   loadingText: {
     color: theme.colors.muted,
-    fontSize: 15,
+    ...theme.typography.body,
     fontWeight: "600",
   },
 });

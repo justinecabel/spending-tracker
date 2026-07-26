@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import type { Category, CreateTransactionInput } from "@spending-tracker/shared";
 import { combineDateAndTime, toDateInputValue, toTimeInputValue } from "../lib/date";
 import { theme } from "../theme";
 import { WebPressable as Pressable } from "./web-pressable";
+import { FormModal } from "./ui";
 
 function normalizeAmountInput(value: string) {
   const cleaned = value.replace(/[^\d.]/g, "");
@@ -34,7 +35,7 @@ export function TransactionForm({
   onDeleteCategory,
 }: {
   categories: Category[];
-  merchantSuggestions: string[];
+  merchantSuggestions: Array<{ merchant: string; categoryId: string | null }>;
   onSubmit: (value: CreateTransactionInput) => void | Promise<void>;
   onCreateCategory: (value: { name: string; color: string }) => Promise<Category>;
   onUpdateCategory: (id: string, value: { name: string; color: string }) => Promise<Category>;
@@ -91,8 +92,8 @@ export function TransactionForm({
     }
 
     return merchantSuggestions
-      .filter((value) => value.trim().length > 0)
-      .filter((value) => value.toLowerCase().includes(query) && value.toLowerCase() !== query)
+      .filter((item) => item.merchant.trim().length > 0)
+      .filter((item) => item.merchant.toLowerCase().includes(query) && item.merchant.toLowerCase() !== query)
       .slice(0, 5);
   }, [merchant, merchantSuggestions]);
   const webAmountInputProps = Platform.OS === "web" ? ({ inputMode: "decimal" } as const) : {};
@@ -152,9 +153,18 @@ export function TransactionForm({
           />
           {merchantMatches.length > 0 ? (
             <View style={styles.suggestionList}>
-              {merchantMatches.map((value) => (
-                <Pressable key={value} style={styles.suggestionChip} onPress={() => setMerchant(value)}>
-                  <Text style={styles.suggestionText}>{value}</Text>
+              {merchantMatches.map((item) => (
+                <Pressable
+                  key={item.merchant}
+                  style={styles.suggestionChip}
+                  onPress={() => {
+                    setMerchant(item.merchant);
+                    if (item.categoryId && allExpenseCategories.some((category) => category.id === item.categoryId)) {
+                      setCategoryId(item.categoryId);
+                    }
+                  }}
+                >
+                  <Text style={styles.suggestionText}>{item.merchant}</Text>
                 </Pressable>
               ))}
             </View>
@@ -243,10 +253,7 @@ export function TransactionForm({
         </Pressable>
       </View>
 
-      <Modal transparent visible={isCategoryModalOpen} animationType="fade" onRequestClose={() => setIsCategoryModalOpen(false)}>
-        <View style={styles.modalScrim}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>New category</Text>
+      <FormModal visible={isCategoryModalOpen} title="New category" onClose={() => setIsCategoryModalOpen(false)}>
             <TextInput
               value={newCategoryName}
               onChangeText={setNewCategoryName}
@@ -287,9 +294,6 @@ export function TransactionForm({
             </View>
             {categoryError ? <Text style={styles.errorText}>{categoryError}</Text> : null}
             <View style={styles.modalActions}>
-              <Pressable style={[styles.secondaryButton]} onPress={() => setIsCategoryModalOpen(false)}>
-                <Text style={styles.secondaryButtonText}>Cancel</Text>
-              </Pressable>
               <Pressable
                 style={[styles.submit, styles.modalSubmit, isCreatingCategory && styles.buttonDisabled]}
                 onPress={async () => {
@@ -322,14 +326,9 @@ export function TransactionForm({
                 <Text style={styles.submitText}>{isCreatingCategory ? "Saving..." : "Save category"}</Text>
               </Pressable>
             </View>
-          </View>
-        </View>
-      </Modal>
+      </FormModal>
 
-      <Modal transparent visible={isManageModalOpen} animationType="fade" onRequestClose={() => setIsManageModalOpen(false)}>
-        <View style={styles.modalScrim}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit category</Text>
+      <FormModal visible={isManageModalOpen} title="Edit category" onClose={() => setIsManageModalOpen(false)} size="wide">
             <View style={styles.categoryRow}>
               {allExpenseCategories.map((category) => (
                 <Pressable
@@ -423,9 +422,6 @@ export function TransactionForm({
               >
                 <Text style={styles.deleteButtonText}>{isDeletingCategory ? "Deleting..." : "Delete"}</Text>
               </Pressable>
-              <Pressable style={[styles.secondaryButton]} onPress={() => setIsManageModalOpen(false)}>
-                <Text style={styles.secondaryButtonText}>Close</Text>
-              </Pressable>
               <Pressable
                 style={[styles.submit, styles.modalSubmit, (isUpdatingCategory || isDeletingCategory) && styles.buttonDisabled]}
                 onPress={async () => {
@@ -459,9 +455,7 @@ export function TransactionForm({
                 <Text style={styles.submitText}>{isUpdatingCategory ? "Saving..." : "Save changes"}</Text>
               </Pressable>
             </View>
-          </View>
-        </View>
-      </Modal>
+      </FormModal>
     </View>
   );
 }
@@ -492,7 +486,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "600",
   },
   input: {
@@ -534,6 +528,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   categoryText: {
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "600",
   },
   addCategoryChip: {
@@ -545,19 +541,28 @@ const styles = StyleSheet.create({
   },
   addCategoryText: {
     color: theme.colors.accent,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "700",
   },
   submit: {
     borderRadius: 999,
     backgroundColor: theme.colors.accent,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     alignItems: "center",
   },
   submitWrap: {
-    paddingTop: 4,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingTop: 16,
+    marginTop: 4,
   },
   submitText: {
     color: theme.colors.accentText,
+    ...theme.typography.control,
     fontWeight: "700",
   },
   suggestionList: {
@@ -573,30 +578,9 @@ const styles = StyleSheet.create({
   },
   suggestionText: {
     color: theme.colors.accentSoftText,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "600",
-  },
-  modalScrim: {
-    flex: 1,
-    backgroundColor: "rgba(27, 29, 31, 0.35)",
-    justifyContent: "center",
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.lg,
-    padding: 20,
-    gap: 14,
-    width: "100%",
-    maxWidth: 460,
-    alignSelf: "center",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    ...theme.shadow,
-  },
-  modalTitle: {
-    color: theme.colors.ink,
-    fontSize: 22,
-    fontWeight: "700",
   },
   colorRow: {
     flexDirection: "row",
@@ -612,7 +596,7 @@ const styles = StyleSheet.create({
   },
   colorInputLabel: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "600",
   },
   colorHexInput: {
@@ -638,18 +622,13 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "flex-end",
     gap: 10,
-  },
-  secondaryButton: {
-    borderRadius: 999,
-    backgroundColor: theme.colors.accentSoft,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  secondaryButtonText: {
-    color: theme.colors.accentSoftText,
-    fontWeight: "700",
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingTop: 16,
+    marginTop: 4,
   },
   modalSubmit: {
     paddingHorizontal: 16,
@@ -665,10 +644,11 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: {
     color: "#B91C1C",
+    ...theme.typography.control,
     fontWeight: "700",
   },
   errorText: {
     color: theme.colors.warning,
-    fontSize: 13,
+    ...theme.typography.label,
   },
 });

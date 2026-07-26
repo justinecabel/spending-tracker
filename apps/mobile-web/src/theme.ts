@@ -160,6 +160,48 @@ const webColors: ThemePalette = {
 
 export const theme = {
   colors: webColors,
+  spacing: {
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    xxl: 24,
+  },
+  typography: {
+    pageTitle: {
+      fontSize: 28,
+      lineHeight: 34,
+    },
+    sectionTitle: {
+      fontSize: 24,
+      lineHeight: 30,
+    },
+    subheading: {
+      fontSize: 18,
+      lineHeight: 24,
+    },
+    body: {
+      fontSize: 15,
+      lineHeight: 22,
+    },
+    label: {
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    caption: {
+      fontSize: 12,
+      lineHeight: 17,
+    },
+    control: {
+      fontSize: 15,
+      lineHeight: 20,
+    },
+    metric: {
+      fontSize: 28,
+      lineHeight: 34,
+    },
+  },
   radius: {
     sm: 12,
     md: 18,

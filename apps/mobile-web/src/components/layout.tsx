@@ -183,15 +183,15 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    paddingTop: 20,
-    paddingHorizontal: 20,
+    paddingTop: theme.spacing.xl,
+    paddingHorizontal: theme.spacing.xl,
     paddingBottom: 32,
     alignItems: "center",
   },
   contentCompact: {
-    paddingTop: 14,
-    paddingHorizontal: 12,
-    paddingBottom: 20,
+    paddingTop: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: theme.spacing.xl,
   },
   contentFabSafe: {
     paddingBottom: 14,
@@ -203,20 +203,20 @@ const styles = StyleSheet.create({
   },
   pullIndicatorText: {
     color: theme.colors.accent,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "700",
   },
   inner: {
     width: "100%",
     maxWidth: 1180,
-    gap: 20,
+    gap: theme.spacing.lg,
   },
   innerCompact: {
-    gap: 14,
+    gap: theme.spacing.md,
   },
   grid: {
     flexDirection: "row",
-    gap: 20,
+    gap: theme.spacing.lg,
     alignItems: "flex-start",
     width: "100%",
   },

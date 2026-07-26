@@ -55,6 +55,21 @@ export const budgetSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const debtReminderDaysSchema = z.union([z.literal(0), z.literal(1), z.literal(3), z.literal(7)]);
+
+export const debtSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  categoryId: z.string(),
+  merchant: z.string(),
+  amount: z.number().positive(),
+  dueAt: z.string(),
+  reminderDaysBefore: debtReminderDaysSchema.nullable(),
+  paidAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 export const authResponseSchema = z.object({
   user: userSchema,
   accessToken: z.string(),
@@ -87,6 +102,7 @@ export const importDeviceDataResultSchema = z.object({
   importedCategories: z.number().int().nonnegative(),
   importedTransactions: z.number().int().nonnegative(),
   importedBudgets: z.number().int().nonnegative(),
+  importedDebts: z.number().int().nonnegative(),
 });
 
 export const ownDeviceDataResultSchema = importDeviceDataResultSchema.extend({
@@ -156,6 +172,40 @@ export const monthlyReportSchema = z.object({
   budgetRemaining: z.number(),
 });
 
+export const createDebtInputSchema = z.object({
+  categoryId: z.string().min(1).optional(),
+  merchant: z.string().trim().min(1).max(140),
+  amount: z.number().positive(),
+  dueAt: z.string().datetime(),
+  reminderDaysBefore: debtReminderDaysSchema.optional().nullable().default(null),
+});
+
+export const updateDebtInputSchema = createDebtInputSchema.partial().extend({
+  paidAt: z.string().datetime().nullable().optional(),
+});
+
+export const notificationTestResultSchema = z.object({
+  attempted: z.boolean(),
+  permissionBefore: z.string(),
+  permissionAfter: z.string(),
+  deliveryMethod: z.enum(["service-worker", "notification-constructor", "none"]),
+  error: z.string().max(500).nullable(),
+});
+
+export const clientDiagnosticInputSchema = z.object({
+  kind: z.enum(["notification-diagnostic", "bug-report"]).default("notification-diagnostic"),
+  client: z.record(z.unknown()),
+  notificationTest: notificationTestResultSchema.optional().nullable().default(null),
+  userText: z.string().trim().min(1).max(4_000).optional().nullable(),
+})
+  .refine((value) => value.kind !== "bug-report" || Boolean(value.userText), "Describe the bug before sending")
+  .refine((value) => JSON.stringify(value).length <= 64_000, "Diagnostic report is too large");
+
+export const clientDiagnosticResponseSchema = z.object({
+  reportId: z.string(),
+  receivedAt: z.string(),
+});
+
 export const syncMutationSchema = z.object({
   id: z.string(),
   userId: z.string().min(1),
@@ -169,6 +219,7 @@ export type User = z.infer<typeof userSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type Transaction = z.infer<typeof transactionSchema>;
 export type Budget = z.infer<typeof budgetSchema>;
+export type Debt = z.infer<typeof debtSchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 export type ProfileSlot = z.infer<typeof profileSlotSchema>;
 export type TransferTokenResponse = z.infer<typeof transferTokenResponseSchema>;
@@ -184,5 +235,10 @@ export type CreateTransactionInput = z.infer<typeof createTransactionInputSchema
 export type UpdateTransactionInput = z.infer<typeof updateTransactionInputSchema>;
 export type TransactionQuery = z.infer<typeof transactionQuerySchema>;
 export type BudgetUpsertInput = z.infer<typeof budgetUpsertInputSchema>;
+export type CreateDebtInput = z.infer<typeof createDebtInputSchema>;
+export type UpdateDebtInput = z.infer<typeof updateDebtInputSchema>;
+export type NotificationTestResult = z.infer<typeof notificationTestResultSchema>;
+export type ClientDiagnosticInput = z.infer<typeof clientDiagnosticInputSchema>;
+export type ClientDiagnosticResponse = z.infer<typeof clientDiagnosticResponseSchema>;
 export type MonthlyReport = z.infer<typeof monthlyReportSchema>;
 export type SyncMutation = z.infer<typeof syncMutationSchema>;

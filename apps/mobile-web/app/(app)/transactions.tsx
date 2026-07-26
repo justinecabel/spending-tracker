@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import type { Transaction } from "@spending-tracker/shared";
-import { Card, PageHeader, PillButton } from "../../src/components/ui";
+import { Card, FormModal, PageHeader, PillButton } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import {
@@ -330,10 +330,26 @@ export default function TransactionsScreen() {
         </View>
       </Modal>
 
-      <Modal transparent visible={Boolean(selectedTransaction)} animationType="fade" onRequestClose={() => setSelectedTransaction(null)}>
-        <View style={styles.modalScrim}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit transaction</Text>
+      <FormModal
+        visible={Boolean(selectedTransaction)}
+        title="Edit transaction"
+        onClose={() => setSelectedTransaction(null)}
+        footer={
+          <PillButton
+            label={updateMutation.isPending ? "Saving..." : "Save changes"}
+            onPress={() => {
+              if (!selectedTransaction || !Number(amount) || !categoryId) return;
+              void handleUpdate(selectedTransaction.id, {
+                amount: Number(amount),
+                merchant: merchant || null,
+                note: note || null,
+                categoryId,
+                occurredAt: combineDateAndTime(dateValue, timeValue),
+              });
+            }}
+          />
+        }
+      >
             <View style={styles.field}>
               <Text style={styles.label}>Amount</Text>
               <TextInput
@@ -410,27 +426,7 @@ export default function TransactionsScreen() {
               </View>
             </View>
             {updateMutation.error ? <Text style={styles.errorText}>{updateMutation.error.message}</Text> : null}
-            <View style={styles.modalActions}>
-              <PillButton label="Cancel" tone="ghost" onPress={() => setSelectedTransaction(null)} />
-              <PillButton
-                label={updateMutation.isPending ? "Saving..." : "Save changes"}
-                onPress={() => {
-                  if (!selectedTransaction || !Number(amount) || !categoryId) {
-                    return;
-                  }
-                  void handleUpdate(selectedTransaction.id, {
-                      amount: Number(amount),
-                      merchant: merchant || null,
-                      note: note || null,
-                      categoryId,
-                      occurredAt: combineDateAndTime(dateValue, timeValue),
-                  });
-                }}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
+      </FormModal>
 
       <Modal
         transparent
@@ -503,9 +499,12 @@ const styles = StyleSheet.create({
   title: {
     fontWeight: "700",
     color: theme.colors.ink,
+    fontSize: 16,
+    lineHeight: 22,
   },
   meta: {
     color: theme.colors.muted,
+    ...theme.typography.label,
   },
   rowActions: {
     alignItems: "flex-end",
@@ -518,10 +517,13 @@ const styles = StyleSheet.create({
   amount: {
     fontWeight: "700",
     color: theme.colors.ink,
+    fontSize: 16,
+    lineHeight: 22,
   },
   detailAmount: {
     color: theme.colors.accent,
     fontSize: 28,
+    lineHeight: 34,
     fontWeight: "800",
   },
   detailList: {
@@ -559,7 +561,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: theme.colors.muted,
-    fontSize: 13,
+    ...theme.typography.label,
     fontWeight: "600",
   },
   input: {
@@ -601,6 +603,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   categoryText: {
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "600",
   },
   modalActions: {
@@ -623,6 +627,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: theme.colors.muted,
-    fontSize: 15,
+    ...theme.typography.body,
   },
 });

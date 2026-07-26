@@ -45,8 +45,11 @@ export function WebPressable({ onPress, accessibilityLabel, accessibilityRole, d
       <button
         type="button"
         aria-label={accessibilityLabel}
+        aria-expanded={props.accessibilityState?.expanded}
         disabled={isDisabled}
         onClick={isDisabled ? undefined : onPress as unknown as () => void}
+        onMouseEnter={props.onHoverIn ? () => props.onHoverIn?.({} as any) : undefined}
+        onMouseLeave={props.onHoverOut ? () => props.onHoverOut?.({} as any) : undefined}
         style={{
           appearance: "none",
           alignItems: "stretch",

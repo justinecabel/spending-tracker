@@ -1,5 +1,5 @@
-const CACHE_NAME = "spending-tracker-shell-v13";
-const APP_SHELL = ["./", "./offline.html", "./manifest.webmanifest?v=13", "./icon-192.png", "./icon-512.png"];
+const CACHE_NAME = "spending-tracker-shell-v18";
+const APP_SHELL = ["./", "./offline.html", "./manifest.webmanifest?v=18", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -47,6 +47,21 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || "./#/debts", self.location.href).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      const existing = clients.find((client) => "focus" in client);
+      if (existing) {
+        existing.navigate(targetUrl);
+        return existing.focus();
+      }
+      return self.clients.openWindow(targetUrl);
+    }),
   );
 });
 

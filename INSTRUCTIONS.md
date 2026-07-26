@@ -91,6 +91,18 @@ docker exec -it spending-tracker-tailscale tailscale up
 docker exec spending-tracker-tailscale tailscale serve --bg localhost:4000
 ```
 
+On Windows, schedule the Docker API/Tailscale stack to restart every 12 hours:
+
+```powershell
+pnpm docker:api:schedule-restart
+```
+
+Remove that scheduled task with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\schedule-docker-restart.ps1 -Action Remove
+```
+
 To run the local Expo app against the Docker API (rather than the separate
 local development API on port 4000), use:
 

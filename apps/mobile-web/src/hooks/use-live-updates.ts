@@ -9,7 +9,7 @@ type LiveUpdatePayload = {
   at: string;
 };
 
-const LIVE_QUERY_KEYS = ["categories", "transactions", "budgets", "report", "reports", "me"];
+const LIVE_QUERY_KEYS = ["categories", "transactions", "budgets", "debts", "report", "reports", "me"];
 
 export function useLiveUpdates(enabled: boolean) {
   const queryClient = useQueryClient();

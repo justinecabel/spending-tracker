@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Category } from "@spending-tracker/shared";
-import { PillButton } from "./ui";
+import { FormModal, PillButton } from "./ui";
 import { theme } from "../theme";
 import { WebPressable as Pressable } from "./web-pressable";
 
@@ -61,10 +61,21 @@ export function CategoryManager({
       ))}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <Modal transparent visible={isModalOpen} animationType="fade" onRequestClose={() => setIsModalOpen(false)}>
-        <View style={styles.modalScrim}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit category</Text>
+      <FormModal
+        visible={isModalOpen}
+        title="Edit category"
+        onClose={() => setIsModalOpen(false)}
+        footer={
+          <PillButton
+            label={isSaving ? "Saving..." : "Save"}
+            onPress={() => {
+              if (!selectedCategory || !draftName.trim() || isSaving) return;
+              onSave({ id: selectedCategory.id, name: draftName.trim(), color: draftColor });
+              setIsModalOpen(false);
+            }}
+          />
+        }
+      >
             <TextInput value={draftName} onChangeText={setDraftName} placeholder="Category name" style={styles.input} />
             <View style={styles.colors}>
               {COLOR_OPTIONS.map((color) => (
@@ -79,26 +90,7 @@ export function CategoryManager({
                 />
               ))}
             </View>
-            <View style={styles.actions}>
-              <PillButton label="Cancel" tone="ghost" onPress={() => setIsModalOpen(false)} />
-              <PillButton
-                label={isSaving ? "Saving..." : "Save"}
-                onPress={() => {
-                  if (!selectedCategory || !draftName.trim() || isSaving) {
-                    return;
-                  }
-                  onSave({
-                    id: selectedCategory.id,
-                    name: draftName.trim(),
-                    color: draftColor,
-                  });
-                  setIsModalOpen(false);
-                }}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
+      </FormModal>
     </View>
   );
 }
@@ -135,30 +127,12 @@ const styles = StyleSheet.create({
     color: theme.colors.ink,
     fontWeight: "700",
     fontSize: 16,
+    lineHeight: 22,
   },
   meta: {
     color: theme.colors.muted,
+    ...theme.typography.label,
     textTransform: "capitalize",
-  },
-  modalScrim: {
-    flex: 1,
-    backgroundColor: "rgba(27, 29, 31, 0.35)",
-    justifyContent: "center",
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.lg,
-    padding: 20,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    ...theme.shadow,
-  },
-  modalTitle: {
-    color: theme.colors.ink,
-    fontSize: 22,
-    fontWeight: "700",
   },
   input: {
     borderWidth: 1,
@@ -186,12 +160,9 @@ const styles = StyleSheet.create({
   colorOptionActive: {
     borderColor: theme.colors.ink,
   },
-  actions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 10,
-  },
   error: {
     color: theme.colors.warning,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

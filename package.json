@@ -13,6 +13,7 @@
     "start:api": "pnpm --filter @spending-tracker/api start",
     "docker:api": "docker compose up --build",
     "docker:api:down": "docker compose down",
+    "docker:api:schedule-restart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/schedule-docker-restart.ps1",
     "db:adopt-local-to-docker": "node scripts/adopt-local-db.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"

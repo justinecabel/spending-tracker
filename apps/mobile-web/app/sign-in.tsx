@@ -97,16 +97,16 @@ const styles = StyleSheet.create({
   privacyFooter: {
     alignSelf: "center",
     color: theme.colors.muted,
-    fontSize: 12,
-    lineHeight: 17,
+    ...theme.typography.caption,
     maxWidth: 520,
     paddingHorizontal: 6,
   },
   actions: {
-    marginTop: 12,
+    alignItems: "flex-start",
   },
   error: {
-    marginTop: 10,
     color: theme.colors.warning,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

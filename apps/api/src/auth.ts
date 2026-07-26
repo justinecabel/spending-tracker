@@ -311,13 +311,20 @@ export function pruneStaleData(options: CleanupOptions = {}) {
               FROM transactions
               WHERE transactions.user_id = users.id AND transactions.deleted_at IS NULL
             )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM debts
+              WHERE debts.user_id = users.id
+            )
           )
           OR (
             last_seen_at <= @inactiveAccountBefore
             AND EXISTS (
-              SELECT 1
-              FROM transactions
+              SELECT 1 FROM transactions
               WHERE transactions.user_id = users.id AND transactions.deleted_at IS NULL
+              UNION ALL
+              SELECT 1 FROM debts
+              WHERE debts.user_id = users.id
             )
           )
         `,
@@ -325,6 +332,7 @@ export function pruneStaleData(options: CleanupOptions = {}) {
       .all({ emptyAccountBefore, inactiveAccountBefore }) as Array<{ id: string }>;
 
     for (const { id } of staleUsers) {
+      database.prepare("DELETE FROM debts WHERE user_id = ?").run(id);
       database.prepare("DELETE FROM transactions WHERE user_id = ?").run(id);
       database.prepare("DELETE FROM budgets WHERE user_id = ?").run(id);
       database.prepare("DELETE FROM categories WHERE user_id = ?").run(id);

@@ -69,6 +69,35 @@ export function runMigrations() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_scope
       ON budgets(user_id, IFNULL(category_id, '__overall__'), month);
 
+    CREATE TABLE IF NOT EXISTS debts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      category_id TEXT NOT NULL,
+      merchant TEXT NOT NULL,
+      amount REAL NOT NULL,
+      due_at TEXT NOT NULL,
+      reminder_days_before INTEGER,
+      paid_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (category_id) REFERENCES categories(id),
+      CHECK(reminder_days_before IS NULL OR reminder_days_before IN (0, 1, 3, 7))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_debts_user_due_at ON debts(user_id, paid_at, due_at);
+
+    CREATE TABLE IF NOT EXISTS client_diagnostics (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_client_diagnostics_user_created_at
+      ON client_diagnostics(user_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,

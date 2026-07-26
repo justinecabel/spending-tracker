@@ -61,3 +61,20 @@ export function combineDateAndTime(dateValue: string, timeValue: string) {
   const composed = new Date(year, (month ?? 1) - 1, day ?? 1, hours ?? 0, minutes ?? 0, 0, 0);
   return composed.toISOString();
 }
+
+export function rollMonthlyDateForward(value: string | Date, reference = new Date()) {
+  let result = new Date(value);
+  if (Number.isNaN(result.getTime())) return new Date(reference);
+
+  while (result.getTime() <= reference.getTime()) {
+    const desiredDay = result.getDate();
+    const next = new Date(result);
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    const lastDayOfNextMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(desiredDay, lastDayOfNextMonth));
+    result = next;
+  }
+
+  return result;
+}

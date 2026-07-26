@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Modal, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Budget, Category } from "@spending-tracker/shared";
-import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
+import { Card, FormModal, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { formatMoney, monthKey } from "../../src/lib/date";
@@ -143,10 +143,25 @@ export default function BudgetsScreen() {
         </View>
       </Card>
 
-      <Modal transparent visible={isModalOpen} animationType="fade" onRequestClose={() => setIsModalOpen(false)}>
-        <View style={styles.modalScrim}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit budget</Text>
+      <FormModal
+        visible={isModalOpen}
+        title="Edit budget"
+        onClose={() => setIsModalOpen(false)}
+        footer={
+          <PillButton
+            label={saveBudget.isPending ? "Saving..." : "Save"}
+            onPress={() => {
+              if (!selectedCategory || saveBudget.isPending) return;
+              void handleSaveBudget({
+                categoryId: selectedCategory.id,
+                month,
+                amount: Number(draftAmount || selectedBudgetAmount || 0),
+              });
+              setIsModalOpen(false);
+            }}
+          />
+        }
+      >
             <Text style={styles.modalCategory}>{selectedCategory?.name ?? "Category"}</Text>
             <Text style={styles.modalMeta}>
               Current: {formatMoney(selectedBudgetAmount, user?.currency ?? "USD")}
@@ -158,26 +173,7 @@ export default function BudgetsScreen() {
               onChangeText={setDraftAmount}
               style={styles.input}
             />
-            <View style={styles.actions}>
-              <PillButton label="Cancel" tone="ghost" onPress={() => setIsModalOpen(false)} />
-              <PillButton
-                label={saveBudget.isPending ? "Saving..." : "Save"}
-                onPress={() => {
-                  if (!selectedCategory || saveBudget.isPending) {
-                    return;
-                  }
-                  void handleSaveBudget({
-                    categoryId: selectedCategory.id,
-                    month,
-                    amount: Number(draftAmount || selectedBudgetAmount || 0),
-                  });
-                  setIsModalOpen(false);
-                }}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
+      </FormModal>
     </ScreenContainer>
   );
 }
@@ -213,37 +209,20 @@ const styles = StyleSheet.create({
     color: theme.colors.ink,
     fontWeight: "700",
     fontSize: 16,
+    lineHeight: 22,
   },
   meta: {
     color: theme.colors.muted,
-  },
-  modalScrim: {
-    flex: 1,
-    backgroundColor: "rgba(27, 29, 31, 0.35)",
-    justifyContent: "center",
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.lg,
-    padding: 20,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    ...theme.shadow,
-  },
-  modalTitle: {
-    color: theme.colors.ink,
-    fontSize: 22,
-    fontWeight: "700",
+    ...theme.typography.label,
   },
   modalCategory: {
     color: theme.colors.ink,
-    fontSize: 18,
+    ...theme.typography.subheading,
     fontWeight: "700",
   },
   modalMeta: {
     color: theme.colors.muted,
+    ...theme.typography.body,
   },
   input: {
     borderWidth: 1,
@@ -255,10 +234,5 @@ const styles = StyleSheet.create({
     color: theme.colors.ink,
     fontSize: 16,
     ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent" } as any) : {}),
-  },
-  actions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 10,
   },
 });

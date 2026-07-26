@@ -14,16 +14,21 @@ import {
 import { requireAuth } from "./middleware/auth";
 import {
   createCategory,
+  createClientDiagnostic,
+  createDebt,
   createTransaction,
   deleteCategory,
+  deleteDebt,
   deleteTransaction,
   getBudgets,
   getCategories,
+  getDebts,
   getMonthlyReport,
   getTransactions,
   importDeviceData,
   ownDeviceData,
   updateCategory,
+  updateDebt,
   updateTransaction,
   upsertBudget,
 } from "./repositories";
@@ -146,6 +151,17 @@ router.patch("/me", requireAuth, (request, response) => {
   response.json({ user: updated });
 });
 
+router.post("/diagnostics/client", requireAuth, (request, response) => {
+  const result = createClientDiagnostic(currentUser(request).id, request.body, {
+    remoteAddress: request.ip,
+    userAgent: request.get("user-agent") ?? null,
+    acceptLanguage: request.get("accept-language") ?? null,
+    origin: request.get("origin") ?? null,
+    forwardedProto: request.get("x-forwarded-proto") ?? null,
+  });
+  response.status(201).json(result);
+});
+
 router.post("/auth/transfer-token", requireAuth, (request, response) => {
   response.json(createTransferToken(currentUser(request).id));
 });
@@ -158,14 +174,14 @@ router.post("/auth/transfer-token/regenerate", requireAuth, (request, response) 
 router.post("/auth/import-device-data", requireAuth, (request, response) => {
   const user = currentUser(request);
   const result = importDeviceData(user.id, request.body);
-  notifyUser(user.id, ["categories", "transactions", "budgets", "report", "reports"]);
+  notifyUser(user.id, ["categories", "transactions", "budgets", "debts", "report", "reports"]);
   response.json(result);
 });
 
 router.post("/auth/own-device-data", requireAuth, (request, response) => {
   const user = currentUser(request);
   const result = ownDeviceData(user.id, request.body);
-  notifyUser(result.deviceUser.id, ["categories", "transactions", "budgets", "report", "reports", "me"]);
+  notifyUser(result.deviceUser.id, ["categories", "transactions", "budgets", "debts", "report", "reports", "me"]);
   response.json(result);
 });
 
@@ -176,21 +192,21 @@ router.get("/categories", requireAuth, (request, response) => {
 router.post("/categories", requireAuth, (request, response) => {
   const user = currentUser(request);
   const category = createCategory(user.id, request.body);
-  notifyUser(user.id, ["categories", "transactions", "report", "reports", "budgets"]);
+  notifyUser(user.id, ["categories", "transactions", "debts", "report", "reports", "budgets"]);
   response.status(201).json(category);
 });
 
 router.patch("/categories/:id", requireAuth, (request, response) => {
   const user = currentUser(request);
   const category = updateCategory(user.id, first(request.params.id), request.body);
-  notifyUser(user.id, ["categories", "transactions", "report", "reports", "budgets"]);
+  notifyUser(user.id, ["categories", "transactions", "debts", "report", "reports", "budgets"]);
   response.json(category);
 });
 
 router.delete("/categories/:id", requireAuth, (request, response) => {
   const user = currentUser(request);
   const category = deleteCategory(user.id, first(request.params.id));
-  notifyUser(user.id, ["categories", "transactions", "report", "reports", "budgets"]);
+  notifyUser(user.id, ["categories", "transactions", "debts", "report", "reports", "budgets"]);
   response.json(category);
 });
 
@@ -216,6 +232,31 @@ router.delete("/transactions/:id", requireAuth, (request, response) => {
   const user = currentUser(request);
   deleteTransaction(user.id, first(request.params.id));
   notifyUser(user.id, ["transactions", "report", "reports"]);
+  response.status(204).send();
+});
+
+router.get("/debts", requireAuth, (request, response) => {
+  response.json(getDebts(currentUser(request).id));
+});
+
+router.post("/debts", requireAuth, (request, response) => {
+  const user = currentUser(request);
+  const debt = createDebt(user.id, request.body);
+  notifyUser(user.id, ["debts"]);
+  response.status(201).json(debt);
+});
+
+router.patch("/debts/:id", requireAuth, (request, response) => {
+  const user = currentUser(request);
+  const debt = updateDebt(user.id, first(request.params.id), request.body);
+  notifyUser(user.id, ["debts"]);
+  response.json(debt);
+});
+
+router.delete("/debts/:id", requireAuth, (request, response) => {
+  const user = currentUser(request);
+  deleteDebt(user.id, first(request.params.id));
+  notifyUser(user.id, ["debts"]);
   response.status(204).send();
 });
 

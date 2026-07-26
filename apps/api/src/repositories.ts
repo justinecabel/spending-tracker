@@ -2,7 +2,9 @@ import { nanoid } from "nanoid";
 import {
   buildMonthlyReport,
   budgetUpsertInputSchema,
+  clientDiagnosticInputSchema,
   createCategoryInputSchema,
+  createDebtInputSchema,
   createTransactionInputSchema,
   importDeviceDataInputSchema,
   importDeviceDataResultSchema,
@@ -12,7 +14,9 @@ import {
   type BudgetUpsertInput,
   type Category,
   type CreateCategoryInput,
+  type CreateDebtInput,
   type CreateTransactionInput,
+  type Debt,
   type ImportDeviceDataResult,
   monthlyReportQuerySchema,
   type MonthlyReport,
@@ -21,9 +25,29 @@ import {
   type User,
   transactionQuerySchema,
   updateCategoryInputSchema,
+  updateDebtInputSchema,
   updateTransactionInputSchema,
+  type UpdateDebtInput,
 } from "@spending-tracker/shared";
 import { db } from "./db/client";
+
+export function createClientDiagnostic(
+  userId: string,
+  rawInput: unknown,
+  serverContext: Record<string, unknown>,
+) {
+  const input = clientDiagnosticInputSchema.parse(rawInput);
+  const id = `diag_${nanoid(16)}`;
+  const createdAt = new Date().toISOString();
+  const payload = { ...input, server: serverContext };
+
+  db.prepare(
+    "INSERT INTO client_diagnostics (id, user_id, payload_json, created_at) VALUES (?, ?, ?, ?)",
+  ).run(id, userId, JSON.stringify(payload), createdAt);
+
+  console.info("[client-diagnostic]", JSON.stringify({ reportId: id, userId, createdAt, ...payload }));
+  return { reportId: id, receivedAt: createdAt };
+}
 
 export function getCategories(userId: string): Category[] {
   ensureSystemCategories(userId);
@@ -141,6 +165,14 @@ export function deleteCategory(userId: string, categoryId: string): Category {
     db.prepare(
       `
         UPDATE transactions
+        SET category_id = ?, updated_at = ?
+        WHERE user_id = ? AND category_id = ?
+      `,
+    ).run(trashed.id, updatedAt, userId, current.id);
+
+    db.prepare(
+      `
+        UPDATE debts
         SET category_id = ?, updated_at = ?
         WHERE user_id = ? AND category_id = ?
       `,
@@ -288,6 +320,94 @@ export function deleteTransaction(userId: string, transactionId: string) {
       WHERE id = ? AND user_id = ? AND deleted_at IS NULL
     `,
   ).run(deletedAt, deletedAt, transactionId, userId);
+}
+
+export function getDebts(userId: string): Debt[] {
+  const rows = db
+    .prepare("SELECT * FROM debts WHERE user_id = ? ORDER BY paid_at IS NOT NULL ASC, due_at ASC, created_at DESC")
+    .all(userId) as DebtRow[];
+  return rows.map(mapDebt);
+}
+
+export function createDebt(userId: string, input: CreateDebtInput): Debt {
+  ensureSystemCategories(userId);
+  const parsed = createDebtInputSchema.parse(input);
+  const categoryId = parsed.categoryId ?? getSystemCategory(userId, "Other")?.id;
+  if (!categoryId) {
+    throw new Error("Category not found");
+  }
+  assertActiveExpenseCategory(userId, categoryId);
+  const now = new Date().toISOString();
+  const row: DebtRow = {
+    id: nanoid(),
+    user_id: userId,
+    category_id: categoryId,
+    merchant: parsed.merchant,
+    amount: parsed.amount,
+    due_at: parsed.dueAt,
+    reminder_days_before: parsed.reminderDaysBefore ?? null,
+    paid_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+
+  db.prepare(
+    `
+      INSERT INTO debts (id, user_id, category_id, merchant, amount, due_at, reminder_days_before, paid_at, created_at, updated_at)
+      VALUES (@id, @user_id, @category_id, @merchant, @amount, @due_at, @reminder_days_before, @paid_at, @created_at, @updated_at)
+    `,
+  ).run(row);
+  return mapDebt(row);
+}
+
+export function updateDebt(userId: string, debtId: string, input: UpdateDebtInput): Debt {
+  const parsed = updateDebtInputSchema.parse(input);
+  const current = db.prepare("SELECT * FROM debts WHERE id = ? AND user_id = ?").get(debtId, userId) as DebtRow | undefined;
+  if (!current) {
+    throw new Error("Debt not found");
+  }
+  if (parsed.categoryId !== undefined) {
+    assertActiveExpenseCategory(userId, parsed.categoryId);
+  }
+
+  const row: DebtRow = {
+    ...current,
+    category_id: parsed.categoryId ?? current.category_id,
+    merchant: parsed.merchant ?? current.merchant,
+    amount: parsed.amount ?? current.amount,
+    due_at: parsed.dueAt ?? current.due_at,
+    reminder_days_before:
+      parsed.reminderDaysBefore === undefined ? current.reminder_days_before : parsed.reminderDaysBefore,
+    paid_at: parsed.paidAt === undefined ? current.paid_at : parsed.paidAt,
+    updated_at: new Date().toISOString(),
+  };
+
+  db.prepare(
+    `
+      UPDATE debts
+      SET category_id = @category_id, merchant = @merchant, amount = @amount, due_at = @due_at,
+          reminder_days_before = @reminder_days_before, paid_at = @paid_at, updated_at = @updated_at
+      WHERE id = @id AND user_id = @user_id
+    `,
+  ).run({
+    id: row.id,
+    user_id: row.user_id,
+    category_id: row.category_id,
+    merchant: row.merchant,
+    amount: row.amount,
+    due_at: row.due_at,
+    reminder_days_before: row.reminder_days_before,
+    paid_at: row.paid_at,
+    updated_at: row.updated_at,
+  });
+  return mapDebt(row);
+}
+
+export function deleteDebt(userId: string, debtId: string) {
+  const result = db.prepare("DELETE FROM debts WHERE id = ? AND user_id = ?").run(debtId, userId);
+  if (!result.changes) {
+    throw new Error("Debt not found");
+  }
 }
 
 export function getBudgets(userId: string, month: string): Budget[] {
@@ -465,10 +585,31 @@ export function importDeviceData(
     importedBudgets += 1;
   }
 
+  const sourceDebts = db.prepare("SELECT * FROM debts WHERE user_id = ? ORDER BY created_at ASC").all(sourceUser.id) as DebtRow[];
+  let importedDebts = 0;
+  for (const debt of sourceDebts) {
+    const categoryId = categoryIdMap.get(debt.category_id) ?? fallbackCategory?.id;
+    if (!categoryId) {
+      continue;
+    }
+    const created = createDebt(targetUserId, {
+      categoryId,
+      merchant: debt.merchant,
+      amount: debt.amount,
+      dueAt: debt.due_at,
+      reminderDaysBefore: debt.reminder_days_before,
+    });
+    if (debt.paid_at) {
+      updateDebt(targetUserId, created.id, { paidAt: debt.paid_at });
+    }
+    importedDebts += 1;
+  }
+
   return importDeviceDataResultSchema.parse({
     importedCategories,
     importedTransactions,
     importedBudgets,
+    importedDebts,
   });
 }
 
@@ -502,11 +643,13 @@ export function ownDeviceData(
   const sourceBudgets = db
     .prepare("SELECT * FROM budgets WHERE user_id = ? ORDER BY month ASC, category_id ASC")
     .all(sourceUser.id) as BudgetRow[];
+  const sourceDebts = db.prepare("SELECT * FROM debts WHERE user_id = ? ORDER BY created_at ASC").all(sourceUser.id) as DebtRow[];
   const now = new Date().toISOString();
   const categoryIdMap = new Map<string, string>();
 
   db.exec("BEGIN");
   try {
+    db.prepare("DELETE FROM debts WHERE user_id = ?").run(targetDeviceUser.id);
     db.prepare("DELETE FROM transactions WHERE user_id = ?").run(targetDeviceUser.id);
     db.prepare("DELETE FROM budgets WHERE user_id = ?").run(targetDeviceUser.id);
     db.prepare("DELETE FROM categories WHERE user_id = ?").run(targetDeviceUser.id);
@@ -575,6 +718,30 @@ export function ownDeviceData(
       });
     }
 
+    for (const sourceDebt of sourceDebts) {
+      const mappedCategoryId = categoryIdMap.get(sourceDebt.category_id);
+      if (!mappedCategoryId) {
+        throw new Error("Debt category not found");
+      }
+      db.prepare(
+        `
+          INSERT INTO debts (id, user_id, category_id, merchant, amount, due_at, reminder_days_before, paid_at, created_at, updated_at)
+          VALUES (@id, @user_id, @category_id, @merchant, @amount, @due_at, @reminder_days_before, @paid_at, @created_at, @updated_at)
+        `,
+      ).run({
+        id: nanoid(),
+        user_id: targetDeviceUser.id,
+        category_id: mappedCategoryId,
+        merchant: sourceDebt.merchant,
+        amount: sourceDebt.amount,
+        due_at: sourceDebt.due_at,
+        reminder_days_before: sourceDebt.reminder_days_before,
+        paid_at: sourceDebt.paid_at,
+        created_at: sourceDebt.created_at,
+        updated_at: now,
+      });
+    }
+
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -590,6 +757,7 @@ export function ownDeviceData(
     importedCategories: sourceCategories.length,
     importedTransactions: sourceTransactions.length,
     importedBudgets: sourceBudgets.length,
+    importedDebts: sourceDebts.length,
     deviceUser: mapUser(refreshedDeviceUser),
   });
 }
@@ -696,6 +864,21 @@ function mapBudget(row: BudgetRow): Budget {
   };
 }
 
+function mapDebt(row: DebtRow): Debt {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    categoryId: row.category_id,
+    merchant: row.merchant,
+    amount: row.amount,
+    dueAt: row.due_at,
+    reminderDaysBefore: row.reminder_days_before,
+    paidAt: row.paid_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapUser(row: DatabaseUserRow): User {
   return {
     id: row.id,
@@ -762,6 +945,19 @@ type BudgetRow = {
   month: string;
   amount: number;
   rollover: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type DebtRow = {
+  id: string;
+  user_id: string;
+  category_id: string;
+  merchant: string;
+  amount: number;
+  due_at: string;
+  reminder_days_before: 0 | 1 | 3 | 7 | null;
+  paid_at: string | null;
   created_at: string;
   updated_at: string;
 };
