@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buildSimulatedDebtScore, type Debt } from "@spending-tracker/shared";
+import { buildDebtPaymentHealth, type Debt } from "@spending-tracker/shared";
 import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Card, FormModal, Metric, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
@@ -90,7 +90,7 @@ export default function DebtsScreen() {
       .filter((item) => item.merchant.toLowerCase().includes(query) && item.merchant.toLowerCase() !== query)
       .slice(0, 5);
   }, [debts, merchant]);
-  const simulatedScore = useMemo(() => buildSimulatedDebtScore(debts), [debts]);
+  const paymentHealth = useMemo(() => buildDebtPaymentHealth(debts), [debts]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -181,16 +181,18 @@ export default function DebtsScreen() {
       <Card>
         <View style={styles.scoreHeader}>
           <SectionTitle
-            title="Simulated credit score"
-            subtitle="Estimated only from activity recorded in Debt Watcher. This is an educational estimate, not a credit-bureau score, and lenders do not use it."
+            title="Debt payment health"
+            subtitle="A 0–100 behavior indicator based only on bills recorded here. It is not a credit score and does not use credit-bureau data."
           />
           <View style={styles.scoreValueBlock}>
-            <Text style={[styles.scoreValue, simulatedScore.score < 580 && styles.scoreValueWarning]}>{simulatedScore.score}</Text>
-            <Text style={styles.scoreBand}>{simulatedScore.band} · {simulatedScore.confidence} confidence</Text>
+            <Text style={[styles.scoreValue, paymentHealth.score !== null && paymentHealth.score < 60 && styles.scoreValueWarning]}>
+              {paymentHealth.score ?? "—"}
+            </Text>
+            <Text style={styles.scoreBand}>{paymentHealth.band} · {paymentHealth.confidence} confidence</Text>
           </View>
         </View>
         <View style={styles.scoreFactors}>
-          {simulatedScore.factors.map((factor) => (
+          {paymentHealth.factors.map((factor) => (
             <View key={factor.label} style={styles.scoreFactor}>
               <Text style={[
                 styles.scoreFactorLabel,

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { useQuery } from "@tanstack/react-query";
 import { Modal, PanResponder, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Line, Polygon, Polyline, Rect } from "react-native-svg";
-import { buildForecastAnalysis, buildSimulatedDebtScore, type Debt, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
+import { buildDebtPaymentHealth, buildForecastAnalysis, type Debt, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
@@ -447,7 +447,7 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
     .reduce((sum, debt) => sum + debt.amount, 0);
   const paidTotal = paid.reduce((sum, debt) => sum + debt.amount, 0);
   const largestOpen = [...open].sort((left, right) => right.amount - left.amount)[0];
-  const simulatedScore = buildSimulatedDebtScore(debts);
+  const paymentHealth = buildDebtPaymentHealth(debts);
   const monthlyObligations = future.reduce<Array<{ key: string; label: string; total: number; count: number }>>((months, debt) => {
     const due = new Date(debt.dueAt);
     const key = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}`;
@@ -470,14 +470,19 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
     <Card>
       <SectionTitle
         title="Debt insights"
-        subtitle="Outstanding obligations, payment progress, and an educational simulated score. The simulated score is not a credit-bureau or lender score."
+        subtitle="Outstanding obligations, payment progress, and debt-payment behavior recorded in this app."
       />
       {loading ? <Text style={styles.emptyText}>Loading debt insights...</Text> : null}
       {error && !debts.length ? <Text style={styles.errorText}>{error}</Text> : null}
       {!loading ? (
         <>
           <View style={styles.nerdGrid}>
-            <StatTile label="Simulated credit score" value={String(simulatedScore.score)} subvalue={`${simulatedScore.band}, ${simulatedScore.confidence.toLowerCase()} confidence`} tone={simulatedScore.score < 580 ? "negative" : simulatedScore.score >= 740 ? "positive" : "neutral"} />
+            <StatTile
+              label="Debt payment health"
+              value={paymentHealth.score === null ? "—" : `${paymentHealth.score}/100`}
+              subvalue={`${paymentHealth.band}, ${paymentHealth.confidence.toLowerCase()} confidence`}
+              tone={paymentHealth.score === null ? "neutral" : paymentHealth.score < 60 ? "negative" : paymentHealth.score >= 90 ? "positive" : "neutral"}
+            />
             <StatTile label="Open debt items" value={String(open.length)} subvalue={`${formatMoney(outstanding, currency)} outstanding`} />
             <StatTile label="Overdue debt" value={formatMoney(overdueTotal, currency)} subvalue={`${overdue.length} overdue item${overdue.length === 1 ? "" : "s"}`} tone={overdue.length ? "negative" : "positive"} />
             <StatTile label="Debt due in 7 days" value={formatMoney(dueInSevenDays, currency)} subvalue="Excludes overdue items" />
@@ -487,8 +492,8 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
           </View>
           <View style={styles.debtDetailsGrid}>
             <View style={styles.driverColumn}>
-              <Text style={styles.driverTitle}>Simulated score factors</Text>
-              {simulatedScore.factors.map((factor) => (
+              <Text style={styles.driverTitle}>Payment-health factors</Text>
+              {paymentHealth.factors.map((factor) => (
                 <View key={factor.label} style={styles.driverRow}>
                   <View style={styles.driverText}>
                     <Text style={[
@@ -698,7 +703,7 @@ function describeStat(label: string) {
     "Debt due in 30 days": "Unpaid debt due during the next thirty days. Already overdue items are excluded.",
     "Paid debt history": "The combined amount of debts that have been marked paid.",
     "Largest open debt": "The highest-value debt that has not yet been marked paid.",
-    "Simulated credit score": "An educational 300–850 estimate based only on debt activity recorded in this app: on-time payments, overdue items, completed payments, and history depth. It is not a bureau or lender score.",
+    "Debt payment health": "A transparent 0–100 behavior indicator based on recorded payment timing. Recent items weigh more, and lateness is grouped into on-time, under 30, 30–59, 60–89, and 90+ day buckets. It is not a bureau or lender credit score.",
   };
 
   if (label.includes("Forecast")) {
