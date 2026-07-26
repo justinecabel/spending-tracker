@@ -87,6 +87,15 @@ export function runMigrations() {
 
     CREATE INDEX IF NOT EXISTS idx_debts_user_due_at ON debts(user_id, paid_at, due_at);
 
+    CREATE TABLE IF NOT EXISTS countdowns (
+      user_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      target_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS client_diagnostics (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,

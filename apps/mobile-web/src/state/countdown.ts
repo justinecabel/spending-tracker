@@ -10,14 +10,17 @@ export type SavedCountdown = {
 
 type CountdownState = {
   countdownsByUser: Record<string, SavedCountdown | undefined>;
+  serverBackedByUser: Record<string, boolean | undefined>;
   saveCountdown: (userId: string, countdown: SavedCountdown) => void;
   removeCountdown: (userId: string) => void;
+  markServerBacked: (userId: string) => void;
 };
 
 export const countdownStore = create<CountdownState>()(
   persist(
     (set) => ({
       countdownsByUser: {},
+      serverBackedByUser: {},
       saveCountdown: (userId, countdown) =>
         set((state) => ({
           countdownsByUser: { ...state.countdownsByUser, [userId]: countdown },
@@ -28,6 +31,10 @@ export const countdownStore = create<CountdownState>()(
           delete countdownsByUser[userId];
           return { countdownsByUser };
         }),
+      markServerBacked: (userId) =>
+        set((state) => ({
+          serverBackedByUser: { ...state.serverBackedByUser, [userId]: true },
+        })),
     }),
     {
       name: "spending-tracker-countdowns",

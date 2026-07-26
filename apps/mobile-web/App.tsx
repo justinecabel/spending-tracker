@@ -148,6 +148,7 @@ function AppShell() {
     queryClient.removeQueries({ queryKey: ["transactions"] });
     queryClient.removeQueries({ queryKey: ["budgets"] });
     queryClient.removeQueries({ queryKey: ["debts"] });
+    queryClient.removeQueries({ queryKey: ["countdown"] });
     queryClient.removeQueries({ queryKey: ["report"] });
     queryClient.removeQueries({ queryKey: ["reports"] });
     queryClient.removeQueries({ queryKey: ["me"] });

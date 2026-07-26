@@ -3,6 +3,7 @@ import {
   buildMonthlyReport,
   budgetUpsertInputSchema,
   clientDiagnosticInputSchema,
+  countdownUpsertInputSchema,
   createCategoryInputSchema,
   createDebtInputSchema,
   createTransactionInputSchema,
@@ -13,6 +14,8 @@ import {
   type Budget,
   type BudgetUpsertInput,
   type Category,
+  type Countdown,
+  type CountdownUpsertInput,
   type CreateCategoryInput,
   type CreateDebtInput,
   type CreateTransactionInput,
@@ -410,6 +413,41 @@ export function deleteDebt(userId: string, debtId: string) {
   }
 }
 
+export function getCountdown(userId: string): Countdown | null {
+  const row = db.prepare("SELECT * FROM countdowns WHERE user_id = ?").get(userId) as CountdownRow | undefined;
+  return row ? mapCountdown(row) : null;
+}
+
+export function upsertCountdown(userId: string, input: CountdownUpsertInput): Countdown {
+  const parsed = countdownUpsertInputSchema.parse(input);
+  const existing = db.prepare("SELECT * FROM countdowns WHERE user_id = ?").get(userId) as CountdownRow | undefined;
+  const now = new Date().toISOString();
+  const row: CountdownRow = {
+    user_id: userId,
+    title: parsed.title,
+    target_at: parsed.targetAt,
+    created_at: existing?.created_at ?? parsed.createdAt ?? now,
+    updated_at: now,
+  };
+
+  db.prepare(
+    `
+      INSERT INTO countdowns (user_id, title, target_at, created_at, updated_at)
+      VALUES (@user_id, @title, @target_at, @created_at, @updated_at)
+      ON CONFLICT(user_id) DO UPDATE SET
+        title = excluded.title,
+        target_at = excluded.target_at,
+        updated_at = excluded.updated_at
+    `,
+  ).run(row);
+
+  return mapCountdown(row);
+}
+
+export function deleteCountdown(userId: string) {
+  db.prepare("DELETE FROM countdowns WHERE user_id = ?").run(userId);
+}
+
 export function getBudgets(userId: string, month: string): Budget[] {
   monthlyReportQuerySchema.parse({ month });
   const rows = db
@@ -605,11 +643,21 @@ export function importDeviceData(
     importedDebts += 1;
   }
 
+  const sourceCountdown = getCountdown(sourceUser.id);
+  if (sourceCountdown) {
+    upsertCountdown(targetUserId, {
+      title: sourceCountdown.title,
+      targetAt: sourceCountdown.targetAt,
+      createdAt: sourceCountdown.createdAt,
+    });
+  }
+
   return importDeviceDataResultSchema.parse({
     importedCategories,
     importedTransactions,
     importedBudgets,
     importedDebts,
+    importedCountdown: Boolean(sourceCountdown),
   });
 }
 
@@ -644,11 +692,13 @@ export function ownDeviceData(
     .prepare("SELECT * FROM budgets WHERE user_id = ? ORDER BY month ASC, category_id ASC")
     .all(sourceUser.id) as BudgetRow[];
   const sourceDebts = db.prepare("SELECT * FROM debts WHERE user_id = ? ORDER BY created_at ASC").all(sourceUser.id) as DebtRow[];
+  const sourceCountdown = getCountdown(sourceUser.id);
   const now = new Date().toISOString();
   const categoryIdMap = new Map<string, string>();
 
   db.exec("BEGIN");
   try {
+    db.prepare("DELETE FROM countdowns WHERE user_id = ?").run(targetDeviceUser.id);
     db.prepare("DELETE FROM debts WHERE user_id = ?").run(targetDeviceUser.id);
     db.prepare("DELETE FROM transactions WHERE user_id = ?").run(targetDeviceUser.id);
     db.prepare("DELETE FROM budgets WHERE user_id = ?").run(targetDeviceUser.id);
@@ -742,6 +792,21 @@ export function ownDeviceData(
       });
     }
 
+    if (sourceCountdown) {
+      db.prepare(
+        `
+          INSERT INTO countdowns (user_id, title, target_at, created_at, updated_at)
+          VALUES (@user_id, @title, @target_at, @created_at, @updated_at)
+        `,
+      ).run({
+        user_id: targetDeviceUser.id,
+        title: sourceCountdown.title,
+        target_at: sourceCountdown.targetAt,
+        created_at: sourceCountdown.createdAt,
+        updated_at: now,
+      });
+    }
+
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -758,6 +823,7 @@ export function ownDeviceData(
     importedTransactions: sourceTransactions.length,
     importedBudgets: sourceBudgets.length,
     importedDebts: sourceDebts.length,
+    importedCountdown: Boolean(sourceCountdown),
     deviceUser: mapUser(refreshedDeviceUser),
   });
 }
@@ -879,6 +945,16 @@ function mapDebt(row: DebtRow): Debt {
   };
 }
 
+function mapCountdown(row: CountdownRow): Countdown {
+  return {
+    userId: row.user_id,
+    title: row.title,
+    targetAt: row.target_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapUser(row: DatabaseUserRow): User {
   return {
     id: row.id,
@@ -958,6 +1034,14 @@ type DebtRow = {
   due_at: string;
   reminder_days_before: 0 | 1 | 3 | 7 | null;
   paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type CountdownRow = {
+  user_id: string;
+  title: string;
+  target_at: string;
   created_at: string;
   updated_at: string;
 };

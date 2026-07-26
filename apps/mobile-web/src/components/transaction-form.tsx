@@ -479,7 +479,9 @@ const styles = StyleSheet.create({
   },
   formScrollContent: {
     gap: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    paddingBottom: 12,
   },
   field: {
     gap: 8,

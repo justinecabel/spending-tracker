@@ -18,10 +18,12 @@ import {
   createDebt,
   createTransaction,
   deleteCategory,
+  deleteCountdown,
   deleteDebt,
   deleteTransaction,
   getBudgets,
   getCategories,
+  getCountdown,
   getDebts,
   getMonthlyReport,
   getTransactions,
@@ -31,6 +33,7 @@ import {
   updateDebt,
   updateTransaction,
   upsertBudget,
+  upsertCountdown,
 } from "./repositories";
 import { notifyUser } from "./realtime";
 
@@ -174,14 +177,14 @@ router.post("/auth/transfer-token/regenerate", requireAuth, (request, response) 
 router.post("/auth/import-device-data", requireAuth, (request, response) => {
   const user = currentUser(request);
   const result = importDeviceData(user.id, request.body);
-  notifyUser(user.id, ["categories", "transactions", "budgets", "debts", "report", "reports"]);
+  notifyUser(user.id, ["categories", "transactions", "budgets", "debts", "countdown", "report", "reports"]);
   response.json(result);
 });
 
 router.post("/auth/own-device-data", requireAuth, (request, response) => {
   const user = currentUser(request);
   const result = ownDeviceData(user.id, request.body);
-  notifyUser(result.deviceUser.id, ["categories", "transactions", "budgets", "debts", "report", "reports", "me"]);
+  notifyUser(result.deviceUser.id, ["categories", "transactions", "budgets", "debts", "countdown", "report", "reports", "me"]);
   response.json(result);
 });
 
@@ -257,6 +260,24 @@ router.delete("/debts/:id", requireAuth, (request, response) => {
   const user = currentUser(request);
   deleteDebt(user.id, first(request.params.id));
   notifyUser(user.id, ["debts"]);
+  response.status(204).send();
+});
+
+router.get("/countdown", requireAuth, (request, response) => {
+  response.json(getCountdown(currentUser(request).id));
+});
+
+router.put("/countdown", requireAuth, (request, response) => {
+  const user = currentUser(request);
+  const countdown = upsertCountdown(user.id, request.body);
+  notifyUser(user.id, ["countdown"]);
+  response.json(countdown);
+});
+
+router.delete("/countdown", requireAuth, (request, response) => {
+  const user = currentUser(request);
+  deleteCountdown(user.id);
+  notifyUser(user.id, ["countdown"]);
   response.status(204).send();
 });
 

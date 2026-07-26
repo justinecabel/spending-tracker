@@ -70,6 +70,14 @@ export const debtSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const countdownSchema = z.object({
+  userId: z.string(),
+  title: z.string(),
+  targetAt: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 export const authResponseSchema = z.object({
   user: userSchema,
   accessToken: z.string(),
@@ -103,6 +111,7 @@ export const importDeviceDataResultSchema = z.object({
   importedTransactions: z.number().int().nonnegative(),
   importedBudgets: z.number().int().nonnegative(),
   importedDebts: z.number().int().nonnegative(),
+  importedCountdown: z.boolean(),
 });
 
 export const ownDeviceDataResultSchema = importDeviceDataResultSchema.extend({
@@ -184,6 +193,12 @@ export const updateDebtInputSchema = createDebtInputSchema.partial().extend({
   paidAt: z.string().datetime().nullable().optional(),
 });
 
+export const countdownUpsertInputSchema = z.object({
+  title: z.string().trim().min(1).max(140),
+  targetAt: z.string().datetime(),
+  createdAt: z.string().datetime().optional(),
+});
+
 export const notificationTestResultSchema = z.object({
   attempted: z.boolean(),
   permissionBefore: z.string(),
@@ -220,6 +235,7 @@ export type Category = z.infer<typeof categorySchema>;
 export type Transaction = z.infer<typeof transactionSchema>;
 export type Budget = z.infer<typeof budgetSchema>;
 export type Debt = z.infer<typeof debtSchema>;
+export type Countdown = z.infer<typeof countdownSchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 export type ProfileSlot = z.infer<typeof profileSlotSchema>;
 export type TransferTokenResponse = z.infer<typeof transferTokenResponseSchema>;
@@ -237,6 +253,7 @@ export type TransactionQuery = z.infer<typeof transactionQuerySchema>;
 export type BudgetUpsertInput = z.infer<typeof budgetUpsertInputSchema>;
 export type CreateDebtInput = z.infer<typeof createDebtInputSchema>;
 export type UpdateDebtInput = z.infer<typeof updateDebtInputSchema>;
+export type CountdownUpsertInput = z.infer<typeof countdownUpsertInputSchema>;
 export type NotificationTestResult = z.infer<typeof notificationTestResultSchema>;
 export type ClientDiagnosticInput = z.infer<typeof clientDiagnosticInputSchema>;
 export type ClientDiagnosticResponse = z.infer<typeof clientDiagnosticResponseSchema>;

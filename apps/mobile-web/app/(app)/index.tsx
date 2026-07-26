@@ -28,13 +28,13 @@ export default function DashboardScreen() {
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isCountdownOpen, setIsCountdownOpen] = useState(false);
+  const [isCountdownMenuOpen, setIsCountdownMenuOpen] = useState(false);
   const [countdownTitle, setCountdownTitle] = useState("");
   const [countdownDate, setCountdownDate] = useState("");
   const [countdownError, setCountdownError] = useState("");
+  const [countdownSyncError, setCountdownSyncError] = useState("");
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
-  const savedCountdown = countdownStore((state) => state.countdownsByUser[userId]);
-  const saveCountdown = countdownStore((state) => state.saveCountdown);
-  const removeCountdown = countdownStore((state) => state.removeCountdown);
+  const cachedCountdown = countdownStore((state) => state.countdownsByUser[userId]);
   const summaryMode = summaryRangeStore((state) => state.mode);
   const customFrom = summaryRangeStore((state) => state.customFrom);
   const customTo = summaryRangeStore((state) => state.customTo);
@@ -132,6 +132,71 @@ export default function DashboardScreen() {
     queryFn: api.debts,
   });
 
+  const countdownQuery = useQuery({
+    queryKey: ["countdown", userId],
+    queryFn: async () => {
+      const remoteCountdown = await api.countdown();
+      const countdownState = countdownStore.getState();
+      const localCountdown = countdownState.countdownsByUser[userId];
+      const serverStateKnown = countdownState.serverBackedByUser[userId];
+
+      if (!remoteCountdown && localCountdown && !serverStateKnown) {
+        const migratedCountdown = await api.upsertCountdown({
+          title: localCountdown.title,
+          targetAt: localCountdown.targetAt,
+          ...(localCountdown.createdAt ? { createdAt: localCountdown.createdAt } : {}),
+        });
+        countdownState.saveCountdown(userId, migratedCountdown);
+        countdownState.markServerBacked(userId);
+        return migratedCountdown;
+      }
+
+      if (remoteCountdown) {
+        countdownState.saveCountdown(userId, remoteCountdown);
+      } else {
+        countdownState.removeCountdown(userId);
+      }
+      countdownState.markServerBacked(userId);
+      return remoteCountdown;
+    },
+  });
+
+  const saveCountdownMutation = useMutation({
+    mutationFn: api.upsertCountdown,
+    onMutate: () => {
+      setCountdownError("");
+      setCountdownSyncError("");
+    },
+    onSuccess: (countdown) => {
+      countdownStore.getState().saveCountdown(userId, countdown);
+      countdownStore.getState().markServerBacked(userId);
+      queryClient.setQueryData(["countdown", userId], countdown);
+      setCountdownNow(Date.now());
+      closeCountdownForm();
+    },
+    onError: (error) => {
+      setCountdownError(error instanceof Error ? error.message : "Could not sync the countdown.");
+    },
+  });
+
+  const deleteCountdownMutation = useMutation({
+    mutationFn: api.deleteCountdown,
+    onMutate: () => {
+      setIsCountdownMenuOpen(false);
+      setCountdownSyncError("");
+    },
+    onSuccess: () => {
+      countdownStore.getState().removeCountdown(userId);
+      countdownStore.getState().markServerBacked(userId);
+      queryClient.setQueryData(["countdown", userId], null);
+    },
+    onError: (error) => {
+      setCountdownSyncError(error instanceof Error ? error.message : "Could not remove the countdown.");
+    },
+  });
+
+  const savedCountdown = countdownQuery.data === undefined ? cachedCountdown : countdownQuery.data;
+
   useEffect(() => {
     const timer = setInterval(() => setCountdownNow(Date.now()), 60_000);
     return () => clearInterval(timer);
@@ -139,6 +204,7 @@ export default function DashboardScreen() {
 
   function openCountdownForm() {
     const defaultTarget = new Date(Date.now() + 24 * 60 * 60 * 1_000);
+    setIsCountdownMenuOpen(false);
     setCountdownTitle(savedCountdown?.title ?? "");
     setCountdownDate(toDateInputValue(savedCountdown?.targetAt ?? defaultTarget));
     setCountdownError("");
@@ -163,13 +229,11 @@ export default function DashboardScreen() {
       setCountdownError("Choose today or a future date.");
       return;
     }
-    saveCountdown(userId, {
+    saveCountdownMutation.mutate({
       title,
       targetAt,
       createdAt: savedCountdown?.createdAt ?? new Date().toISOString(),
     });
-    setCountdownNow(Date.now());
-    closeCountdownForm();
   }
 
   const createTransaction = useMutation({
@@ -572,9 +636,13 @@ export default function DashboardScreen() {
   const countdownCard = (
     <Card style={styles.countdownCard}>
       {savedCountdown ? (
-        <View style={styles.countdownContent}>
+        <View style={[styles.countdownContent, compact && styles.countdownContentCompact]}>
           <View
-            style={[styles.countdownObject, countdownExpired && styles.countdownObjectExpired]}
+            style={[
+              styles.countdownObject,
+              compact && styles.countdownObjectCompact,
+              countdownExpired && styles.countdownObjectExpired,
+            ]}
             accessibilityLabel={`${countdownFill}% of the countdown remaining`}
           >
             <View
@@ -598,22 +666,63 @@ export default function DashboardScreen() {
               </View>
             </View>
             <View style={styles.countdownObjectLabel}>
-              <Text style={[styles.countdownNumber, countdownExpired && styles.countdownUrgentText]}>
+              <Text
+                style={[
+                  styles.countdownNumber,
+                  compact && styles.countdownNumberCompact,
+                  countdownExpired && styles.countdownUrgentText,
+                ]}
+              >
                 {countdownExpired ? "0" : countdownDays}
               </Text>
-              <Text style={[styles.countdownUnit, countdownExpired && styles.countdownUrgentText]}>
+              <Text
+                style={[
+                  styles.countdownUnit,
+                  compact && styles.countdownUnitCompact,
+                  countdownExpired && styles.countdownUrgentText,
+                ]}
+              >
                 {countdownExpired ? "DONE" : countdownDays === 1 ? "DAY" : "DAYS"}
               </Text>
             </View>
           </View>
           <View style={styles.countdownDetails}>
             <Text style={styles.countdownEyebrow}>COUNTDOWN</Text>
-            <Text style={styles.countdownTitle}>{savedCountdown.title}</Text>
-            <Text style={styles.countdownDate}>{formatDateLabel(savedCountdown.targetAt)}</Text>
-            <View style={styles.countdownActions}>
-              <PillButton label="Edit" tone="ghost" onPress={openCountdownForm} />
-              <PillButton label="Remove" tone="ghost" onPress={() => removeCountdown(userId)} />
-            </View>
+            <Text style={styles.countdownTitle} numberOfLines={1}>{savedCountdown.title}</Text>
+            <Text style={styles.countdownDate} numberOfLines={1}>{formatDateLabel(savedCountdown.targetAt)}</Text>
+          </View>
+          <View style={styles.countdownMenu}>
+            <Pressable
+              accessibilityLabel="Countdown actions"
+              accessibilityRole="button"
+              accessibilityState={{ expanded: isCountdownMenuOpen }}
+              onPress={() => setIsCountdownMenuOpen((open) => !open)}
+              style={[styles.countdownMenuButton, isCountdownMenuOpen && styles.countdownMenuButtonOpen]}
+            >
+              <Text style={[styles.countdownMenuDots, isCountdownMenuOpen && styles.countdownMenuDotsOpen]}>•••</Text>
+            </Pressable>
+            {isCountdownMenuOpen ? (
+              <View style={styles.countdownMenuPopover}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={openCountdownForm}
+                  style={styles.countdownMenuItem}
+                >
+                  <Text style={styles.countdownMenuItemText}>Edit</Text>
+                </Pressable>
+                <View style={styles.countdownMenuDivider} />
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setIsCountdownMenuOpen(false);
+                    deleteCountdownMutation.mutate();
+                  }}
+                  style={styles.countdownMenuItem}
+                >
+                  <Text style={[styles.countdownMenuItemText, styles.countdownMenuRemoveText]}>Remove</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         </View>
       ) : (
@@ -625,6 +734,7 @@ export default function DashboardScreen() {
           <PillButton label="Add countdown" tone="ghost" onPress={openCountdownForm} />
         </View>
       )}
+      {countdownSyncError ? <Text style={styles.errorText}>{countdownSyncError}</Text> : null}
     </Card>
   );
 
@@ -815,16 +925,20 @@ const styles = StyleSheet.create({
   countdownCard: {
     backgroundColor: "transparent",
     borderWidth: 0,
-    overflow: "hidden",
+    overflow: "visible",
+    zIndex: 10,
     ...(Platform.OS === "web" ? ({ boxShadow: "none" } as any) : {}),
   },
   countdownContent: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 24,
     justifyContent: "center",
     width: "100%",
+  },
+  countdownContentCompact: {
+    gap: 12,
+    justifyContent: "space-between",
   },
   countdownObject: {
     alignItems: "center",
@@ -837,6 +951,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     width: 132,
+  },
+  countdownObjectCompact: {
+    borderRadius: 22,
+    flexShrink: 0,
+    height: 96,
+    width: 96,
   },
   countdownObjectExpired: {
     borderColor: theme.colors.warning,
@@ -885,6 +1005,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     lineHeight: 48,
   },
+  countdownNumberCompact: {
+    fontSize: 34,
+    lineHeight: 36,
+  },
   countdownUnit: {
     color: theme.colors.accent,
     fontSize: 12,
@@ -892,15 +1016,18 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1.2,
   },
+  countdownUnitCompact: {
+    fontSize: 10,
+    lineHeight: 14,
+  },
   countdownUrgentText: {
     color: theme.colors.warning,
   },
   countdownDetails: {
-    flexBasis: 180,
-    flexGrow: 0,
+    flex: 1,
     flexShrink: 1,
     gap: 4,
-    minWidth: 150,
+    minWidth: 0,
   },
   countdownEyebrow: {
     color: theme.colors.muted,
@@ -919,11 +1046,62 @@ const styles = StyleSheet.create({
     color: theme.colors.muted,
     ...theme.typography.label,
   },
-  countdownActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 10,
+  countdownMenu: {
+    alignSelf: "center",
+    flexShrink: 0,
+    position: "relative",
+    zIndex: 20,
+  },
+  countdownMenuButton: {
+    alignItems: "center",
+    backgroundColor: theme.colors.accentSoft,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  countdownMenuButtonOpen: {
+    backgroundColor: theme.colors.accent,
+  },
+  countdownMenuDots: {
+    color: theme.colors.accentSoftText,
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: -1,
+    lineHeight: 20,
+  },
+  countdownMenuDotsOpen: {
+    color: theme.colors.accentText,
+  },
+  countdownMenuPopover: {
+    backgroundColor: theme.colors.card,
+    borderColor: theme.colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    minWidth: 112,
+    overflow: "hidden",
+    position: "absolute",
+    right: 0,
+    top: 46,
+    zIndex: 30,
+    ...(Platform.OS === "web" ? theme.shadow : {}),
+  },
+  countdownMenuItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  countdownMenuItemText: {
+    color: theme.colors.ink,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  countdownMenuDivider: {
+    backgroundColor: theme.colors.border,
+    height: 1,
+  },
+  countdownMenuRemoveText: {
+    color: theme.colors.warning,
   },
   countdownEmpty: {
     alignItems: "center",

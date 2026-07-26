@@ -5,6 +5,8 @@ import type {
   Category,
   ClientDiagnosticInput,
   ClientDiagnosticResponse,
+  Countdown,
+  CountdownUpsertInput,
   ConsumeTransferTokenInput,
   CreateCategoryInput,
   CreateDebtInput,
@@ -207,6 +209,16 @@ export const api = {
     }),
   deleteDebt: (id: string) =>
     request<void>(`/debts/${id}`, {
+      method: "DELETE",
+    }),
+  countdown: () => request<Countdown | null>("/countdown"),
+  upsertCountdown: (input: CountdownUpsertInput) =>
+    request<Countdown>("/countdown", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteCountdown: () =>
+    request<void>("/countdown", {
       method: "DELETE",
     }),
   budgets: (month: string) => request<Budget[]>(`/budgets?month=${month}`),

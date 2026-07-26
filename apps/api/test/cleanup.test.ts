@@ -29,6 +29,7 @@ test("cleanup removes empty accounts after 12 hours and inactive accounts after 
   assert.equal(userExists(database, "inactive-active"), false);
   assert.equal(countForUser(database, "transactions", "inactive-active"), 0);
   assert.equal(countForUser(database, "debts", "inactive-active"), 0);
+  assert.equal(countForUser(database, "countdowns", "inactive-active"), 0);
   assert.equal(countForUser(database, "budgets", "inactive-active"), 0);
   assert.equal(countForUser(database, "categories", "inactive-active"), 0);
   assert.equal(countForUser(database, "refresh_tokens", "inactive-active"), 0);
@@ -42,6 +43,7 @@ function createDatabase() {
     CREATE TABLE users (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
     CREATE TABLE transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, deleted_at TEXT);
     CREATE TABLE debts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
+    CREATE TABLE countdowns (user_id TEXT PRIMARY KEY);
     CREATE TABLE budgets (id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
     CREATE TABLE categories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
     CREATE TABLE refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL);
@@ -60,6 +62,7 @@ function insertTransaction(database: DatabaseSync, userId: string) {
 }
 
 function insertDependencies(database: DatabaseSync, userId: string) {
+  database.prepare("INSERT INTO countdowns (user_id) VALUES (?)").run(userId);
   database.prepare("INSERT INTO budgets (id, user_id) VALUES (?, ?)").run(`budget-${userId}`, userId);
   database.prepare("INSERT INTO categories (id, user_id) VALUES (?, ?)").run(`category-${userId}`, userId);
   database.prepare("INSERT INTO refresh_tokens (id, user_id, expires_at) VALUES (?, ?, ?)").run(`refresh-${userId}`, userId, "2027-01-01T00:00:00.000Z");
