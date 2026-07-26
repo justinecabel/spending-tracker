@@ -6,6 +6,7 @@ import { ScreenContainer } from "../../src/components/layout";
 import { TransferOutPanel } from "../../src/components/transfer-session";
 import { api } from "../../src/lib/api";
 import { collectClientDiagnostics, runNotificationDiagnostic } from "../../src/lib/client-diagnostics";
+import { usePwaInstallContext } from "../../src/hooks/use-pwa-install";
 import { nanoid } from "nanoid/non-secure";
 import { appearanceStore, getAppearanceProfileKey } from "../../src/state/appearance";
 import { summaryRangeStore, type SummaryRangeMode } from "../../src/state/summary-range";
@@ -44,6 +45,7 @@ export default function SettingsScreen() {
   const removeLinkedProfile = sessionStore((state) => state.removeLinkedProfile);
   const clearSession = sessionStore((state) => state.clearSession);
   const enqueue = offlineQueueStore((state) => state.enqueue);
+  const { canInstall, install, isInstalled, manualInstallHint } = usePwaInstallContext();
   const summaryMode = summaryRangeStore((state) => state.mode);
   const customFrom = summaryRangeStore((state) => state.customFrom);
   const customTo = summaryRangeStore((state) => state.customTo);
@@ -424,6 +426,24 @@ export default function SettingsScreen() {
           {accentError ? <Text style={styles.error}>{accentError}</Text> : null}
         </View>
       </Card>
+
+      {Platform.OS === "web" ? (
+        <Card>
+          <SectionTitle
+            title="Install app"
+            subtitle={
+              isInstalled
+                ? "Spending Tracker is installed on this device."
+                : "Launch from your home screen or app menu and keep the tracker close at hand."
+            }
+          />
+          {canInstall ? (
+            <PillButton label="Install Spending Tracker" onPress={() => void install()} />
+          ) : !isInstalled && manualInstallHint ? (
+            <Text style={styles.helperText}>{manualInstallHint}</Text>
+          ) : null}
+        </Card>
+      ) : null}
 
       {canImportLocalData ? (
         <Card>

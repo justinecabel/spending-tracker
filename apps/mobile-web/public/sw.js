@@ -1,8 +1,13 @@
-const CACHE_NAME = "spending-tracker-shell-v21";
-const APP_SHELL = ["./", "./offline.html", "./manifest.webmanifest?v=21", "./icon-192.png", "./icon-512.png"];
+const CACHE_PREFIX = "spending-tracker-";
+const SHELL_CACHE = `${CACHE_PREFIX}shell-v22`;
+const STATIC_CACHE = `${CACHE_PREFIX}static-v22`;
+const APP_URL = new URL("./", self.registration.scope).href;
+const OFFLINE_URL = new URL("./offline.html", self.registration.scope).href;
+const APP_SHELL = [APP_URL, OFFLINE_URL, new URL("./manifest.webmanifest?v=22", self.registration.scope).href, new URL("./icon-192.png", self.registration.scope).href, new URL("./icon-512.png", self.registration.scope).href];
+const STATIC_DESTINATIONS = new Set(["font", "image", "manifest", "script", "style", "worker"]);
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL)));
 });
 
 self.addEventListener("message", (event) => {
@@ -43,10 +48,18 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim()),
+    Promise.all([
+      caches
+        .keys()
+        .then((keys) =>
+          Promise.all(
+            keys
+              .filter((key) => key.startsWith(CACHE_PREFIX) && key !== SHELL_CACHE && key !== STATIC_CACHE)
+              .map((key) => caches.delete(key)),
+          ),
+        ),
+      self.registration.navigationPreload?.enable(),
+    ]).then(() => self.clients.claim()),
   );
 });
 
@@ -75,30 +88,40 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+      (async () => {
+        try {
+          const response = (await event.preloadResponse) || (await fetch(request));
+          if (response.ok) {
+            event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(APP_URL, response.clone())));
+          }
           return response;
-        })
-        .catch(async () => (await caches.match(request)) || (await caches.match("./offline.html")) || (await caches.match("./"))),
+        } catch {
+          return (await caches.match(APP_URL)) || (await caches.match(OFFLINE_URL)) || Response.error();
+        }
+      })(),
     );
     return;
   }
 
+  // Only cache static browser resources. Same-origin API responses may contain
+  // profile data and must never be stored in the service worker cache.
+  if (!STATIC_DESTINATIONS.has(request.destination)) {
+    return;
+  }
+
   event.respondWith(
-    caches.match(request).then((cached) => {
+    (async () => {
+      const cached = await caches.match(request);
       const network = fetch(request)
         .then((response) => {
           if (response.ok) {
-            const copy = response.clone();
-            void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.put(request, response.clone())));
           }
           return response;
         })
         .catch(() => cached);
 
       return cached || network;
-    }),
+    })(),
   );
 });

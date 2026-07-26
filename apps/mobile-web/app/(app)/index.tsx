@@ -4,6 +4,7 @@ import { Card, FormModal, Metric, PageHeader, PillButton, SectionTitle } from ".
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { combineDateAndTime, formatDateLabel, formatDateTimeLabel, formatMoney, toDateInputValue } from "../../src/lib/date";
+import { calculateCountdownProgress } from "../../src/lib/countdown-progress";
 import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange } from "../../src/lib/summary-range";
 import { TransactionForm } from "../../src/components/transaction-form";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
@@ -503,24 +504,12 @@ export default function DashboardScreen() {
   )[0];
   const stacked = width < 820;
   const compact = width < 640;
-  const countdownTargetDate = savedCountdown ? new Date(savedCountdown.targetAt) : null;
-  countdownTargetDate?.setHours(0, 0, 0, 0);
-  const countdownTarget = countdownTargetDate?.getTime() ?? null;
-  const countdownRemaining = countdownTarget === null ? null : countdownTarget - countdownNow;
-  const countdownExpired = countdownRemaining !== null && countdownRemaining <= 0;
-  const countdownDays = countdownRemaining === null
-    ? 0
-    : Math.max(0, Math.ceil(countdownRemaining / (24 * 60 * 60 * 1_000)));
-  const countdownStartedDate = savedCountdown?.createdAt
-    ? new Date(savedCountdown.createdAt)
-    : new Date((countdownTarget ?? countdownNow) - 30 * 24 * 60 * 60 * 1_000);
-  countdownStartedDate.setHours(0, 0, 0, 0);
-  const countdownTotalDays = countdownTarget === null
-    ? 1
-    : Math.max(1, Math.round((countdownTarget - countdownStartedDate.getTime()) / (24 * 60 * 60 * 1_000)));
-  const countdownFill = countdownExpired
-    ? 0
-    : Math.max(0, Math.min(100, Math.round((countdownDays / countdownTotalDays) * 100)));
+  const countdownProgress = savedCountdown
+    ? calculateCountdownProgress(savedCountdown.targetAt, savedCountdown.createdAt, new Date(countdownNow))
+    : { daysRemaining: 0, totalDays: 1, fillPercent: 0, expired: false };
+  const countdownExpired = countdownProgress.expired;
+  const countdownDays = countdownProgress.daysRemaining;
+  const countdownFill = countdownProgress.fillPercent;
   const countdownWaveForwardWebProps = Platform.OS === "web"
     ? ({ dataSet: { countdownWave: "forward" } } as any)
     : {};

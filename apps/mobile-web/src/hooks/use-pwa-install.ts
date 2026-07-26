@@ -14,6 +14,7 @@ type BeforeInstallPromptEvent = Event & {
 type PwaInstallState = {
   canInstall: boolean;
   isInstalled: boolean;
+  manualInstallHint: string | null;
   install: () => Promise<boolean>;
 };
 
@@ -25,6 +26,7 @@ const unavailableInstall = async () => false;
 export const PwaInstallContext = createContext<PwaInstallState>({
   canInstall: false,
   isInstalled: false,
+  manualInstallHint: null,
   install: unavailableInstall,
 });
 
@@ -42,6 +44,7 @@ export function usePwaInstall(pwaTheme: PwaTheme = { surface: "#FFFDF8" }) {
   const { surface } = pwaTheme;
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [manualInstallHint, setManualInstallHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
@@ -59,12 +62,15 @@ export function usePwaInstall(pwaTheme: PwaTheme = { surface: "#FFFDF8" }) {
     capturePwaStorageHandoff();
     void requestPersistentStorage();
     const displayMode = window.matchMedia?.("(display-mode: standalone)");
-    setIsInstalled(Boolean(displayMode?.matches || window.navigator.standalone));
+    const installed = Boolean(displayMode?.matches || window.navigator.standalone);
+    setIsInstalled(installed);
+    setManualInstallHint(installed ? null : getManualInstallHint(window.navigator));
 
     const onInstalled = () => {
       capturePwaStorageHandoff();
       void requestPersistentStorage();
       setIsInstalled(true);
+      setManualInstallHint(null);
       setInstallPrompt(null);
     };
 
@@ -112,8 +118,21 @@ export function usePwaInstall(pwaTheme: PwaTheme = { surface: "#FFFDF8" }) {
   return {
     canInstall: Boolean(installPrompt) && !isInstalled,
     isInstalled,
+    manualInstallHint: isInstalled || installPrompt ? null : manualInstallHint,
     install,
   };
+}
+
+function getManualInstallHint(navigatorValue: Navigator) {
+  const isIos =
+    /iPad|iPhone|iPod/i.test(navigatorValue.userAgent) ||
+    (navigatorValue.platform === "MacIntel" && navigatorValue.maxTouchPoints > 1);
+
+  if (isIos) {
+    return "Open the browser Share menu, then choose Add to Home Screen.";
+  }
+
+  return "Use your browser menu and choose Install app or Add to Home Screen.";
 }
 
 function ensureMetaTags(surface: string) {
