@@ -179,12 +179,12 @@ export default function DebtsScreen() {
       </View>
 
       <Card>
-        <View style={styles.scoreHeader}>
+        <View style={[styles.scoreHeader, compact && styles.scoreHeaderCompact]}>
           <SectionTitle
             title="Debt payment health"
             subtitle="A 0–100 behavior indicator based only on bills recorded here. It is not a credit score and does not use credit-bureau data."
           />
-          <View style={styles.scoreValueBlock}>
+          <View style={[styles.scoreValueBlock, compact && styles.scoreValueBlockCompact]}>
             <Text style={[styles.scoreValue, paymentHealth.score !== null && paymentHealth.score < 60 && styles.scoreValueWarning]}>
               {paymentHealth.score ?? "—"}
             </Text>
@@ -362,7 +362,9 @@ const styles = StyleSheet.create({
   metricCard: { flexGrow: 1, flexBasis: 220, minWidth: 0 },
   metricCardCompact: { flexGrow: 0, flexBasis: "auto" },
   scoreHeader: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 16 },
+  scoreHeaderCompact: { justifyContent: "center" },
   scoreValueBlock: { alignItems: "flex-end", gap: 2 },
+  scoreValueBlockCompact: { alignItems: "center", flexBasis: "100%", width: "100%" },
   scoreValue: { color: theme.colors.accent, fontSize: 42, fontWeight: "900", lineHeight: 46 },
   scoreValueWarning: { color: theme.colors.warning },
   scoreBand: { color: theme.colors.muted, ...theme.typography.label, fontWeight: "700" },
