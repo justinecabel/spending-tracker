@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import {
+  buildMonthlyReport,
   budgetUpsertInputSchema,
   clientDiagnosticInputSchema,
   countdownUpsertInputSchema,
@@ -21,7 +22,6 @@ import {
   type Debt,
   type ImportDeviceDataResult,
   monthlyReportQuerySchema,
-  monthlyReportSchema,
   type MonthlyReport,
   type OwnDeviceDataResult,
   type Transaction,
@@ -32,9 +32,7 @@ import {
   updateTransactionInputSchema,
   type UpdateDebtInput,
 } from "@spending-tracker/shared";
-import { config } from "./config";
 import { db } from "./db/client";
-import { HttpError } from "./http-error";
 
 export function createClientDiagnostic(
   userId: string,
@@ -45,37 +43,12 @@ export function createClientDiagnostic(
   const id = `diag_${nanoid(16)}`;
   const createdAt = new Date().toISOString();
   const payload = { ...input, server: serverContext };
-  const retentionCutoff = new Date(
-    Date.now() - config.diagnosticRetentionDays * 24 * 60 * 60 * 1_000,
-  ).toISOString();
 
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    db.prepare("DELETE FROM client_diagnostics WHERE created_at < ?").run(retentionCutoff);
-    const userCount = db
-      .prepare("SELECT COUNT(*) AS count FROM client_diagnostics WHERE user_id = ?")
-      .get(userId) as { count: number };
-    const totalCount = db
-      .prepare("SELECT COUNT(*) AS count FROM client_diagnostics")
-      .get() as { count: number };
+  db.prepare(
+    "INSERT INTO client_diagnostics (id, user_id, payload_json, created_at) VALUES (?, ?, ?, ?)",
+  ).run(id, userId, JSON.stringify(payload), createdAt);
 
-    if (userCount.count >= config.diagnosticMaxPerUser) {
-      throw new HttpError(429, "Diagnostic storage limit reached for this account");
-    }
-    if (totalCount.count >= config.diagnosticMaxTotal) {
-      throw new HttpError(503, "Diagnostic storage is temporarily full");
-    }
-
-    db.prepare(
-      "INSERT INTO client_diagnostics (id, user_id, payload_json, created_at) VALUES (?, ?, ?, ?)",
-    ).run(id, userId, JSON.stringify(payload), createdAt);
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-
-  console.info("[client-diagnostic]", JSON.stringify({ reportId: id, userId, createdAt, kind: input.kind }));
+  console.info("[client-diagnostic]", JSON.stringify({ reportId: id, userId, createdAt, ...payload }));
   return { reportId: id, receivedAt: createdAt };
 }
 
@@ -228,7 +201,7 @@ export function deleteCategory(userId: string, categoryId: string): Category {
 export function getTransactions(userId: string, query: unknown): Transaction[] {
   const parsed = transactionQuerySchema.parse(query);
   let sql = "SELECT * FROM transactions WHERE user_id = @userId AND deleted_at IS NULL AND kind = 'expense'";
-  const params: Record<string, string | number> = { userId };
+  const params: Record<string, string> = { userId };
 
   if (parsed.from) {
     sql += " AND occurred_at >= @from";
@@ -251,9 +224,7 @@ export function getTransactions(userId: string, query: unknown): Transaction[] {
     params.search = `%${parsed.search}%`;
   }
 
-  sql += " ORDER BY occurred_at DESC, created_at DESC LIMIT @limit OFFSET @offset";
-  params.limit = parsed.limit;
-  params.offset = parsed.offset;
+  sql += " ORDER BY occurred_at DESC, created_at DESC";
   const rows = db.prepare(sql).all(params) as TransactionRow[];
   return rows.map(mapTransaction);
 }
@@ -545,49 +516,13 @@ function assertActiveExpenseCategory(userId: string, categoryId: string) {
 
 export function getMonthlyReport(userId: string, month: string): MonthlyReport {
   const parsed = monthlyReportQuerySchema.parse({ month });
+  const transactions = getTransactions(userId, {
+    from: `${parsed.month}-01T00:00:00.000Z`,
+    to: `${parsed.month}-31T23:59:59.999Z`,
+  });
   const categories = getCategories(userId);
   const budgets = getBudgets(userId, parsed.month);
-  const [year, monthNumber] = parsed.month.split("-").map(Number);
-  const rangeStart = `${parsed.month}-01T00:00:00.000Z`;
-  const rangeEnd = new Date(Date.UTC(year, monthNumber, 1)).toISOString();
-  const totals = db
-    .prepare(
-      `
-        SELECT category_id, SUM(amount) AS total
-        FROM transactions
-        WHERE user_id = ?
-          AND deleted_at IS NULL
-          AND kind = 'expense'
-          AND occurred_at >= ?
-          AND occurred_at < ?
-        GROUP BY category_id
-        ORDER BY total DESC
-      `,
-    )
-    .all(userId, rangeStart, rangeEnd) as Array<{ category_id: string; total: number }>;
-  const categoryMap = new Map(categories.map((category) => [category.id, category]));
-  const budgetByCategory = new Map(
-    budgets.map((budget) => [budget.categoryId ?? "__overall__", budget.amount]),
-  );
-  const expenseTotal = totals.reduce((sum, row) => sum + row.total, 0);
-  const budgetTotal = budgets.reduce((sum, budget) => sum + budget.amount, 0);
-
-  return monthlyReportSchema.parse({
-    month: parsed.month,
-    expenseTotal,
-    byCategory: totals.map((row) => {
-      const budget = budgetByCategory.get(row.category_id) ?? null;
-      return {
-        categoryId: row.category_id,
-        categoryName: categoryMap.get(row.category_id)?.name ?? "Uncategorized",
-        total: row.total,
-        budget,
-        variance: budget === null ? null : budget - row.total,
-      };
-    }),
-    budgetTotal,
-    budgetRemaining: budgetTotal - expenseTotal,
-  });
+  return buildMonthlyReport(parsed.month, transactions, categories, budgets);
 }
 
 export function importDeviceData(

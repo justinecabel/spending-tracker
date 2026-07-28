@@ -14,9 +14,6 @@ test("cleanup removes empty accounts after 12 hours and inactive accounts after 
   insertTransaction(database, "recent-active");
   insertTransaction(database, "inactive-active");
   insertDependencies(database, "inactive-active");
-  database.prepare(
-    "INSERT INTO client_diagnostics (id, user_id, payload_json, created_at) VALUES (?, ?, '{}', ?)",
-  ).run("diagnostic-inactive-active", "inactive-active", NOW.toISOString());
 
   const removed = pruneStaleData({
     database,
@@ -37,39 +34,11 @@ test("cleanup removes empty accounts after 12 hours and inactive accounts after 
   assert.equal(countForUser(database, "categories", "inactive-active"), 0);
   assert.equal(countForUser(database, "refresh_tokens", "inactive-active"), 0);
   assert.equal(countForUser(database, "transfer_tokens", "inactive-active"), 0);
-  assert.equal(countForUser(database, "client_diagnostics", "inactive-active"), 0);
-  database.close();
-});
-
-test("cleanup isolates a failed account and continues deleting other stale accounts", () => {
-  const database = createDatabase();
-  insertUser(database, "blocked-user", "2026-07-12T00:00:00.000Z", "2026-07-12T00:00:00.000Z");
-  insertUser(database, "deletable-user", "2026-07-12T00:00:00.000Z", "2026-07-12T00:00:00.000Z");
-  database.exec(`
-    CREATE TRIGGER prevent_blocked_user_delete
-    BEFORE DELETE ON users
-    WHEN OLD.id = 'blocked-user'
-    BEGIN
-      SELECT RAISE(ABORT, 'blocked for test');
-    END;
-  `);
-
-  const removed = pruneStaleData({
-    database,
-    now: NOW,
-    emptyAccountGraceHours: 12,
-    inactiveAccountRetentionMonths: 12,
-  });
-
-  assert.equal(removed, 1);
-  assert.equal(userExists(database, "blocked-user"), true);
-  assert.equal(userExists(database, "deletable-user"), false);
   database.close();
 });
 
 function createDatabase() {
   const database = new DatabaseSync(":memory:");
-  database.exec("PRAGMA foreign_keys = ON;");
   database.exec(`
     CREATE TABLE users (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
     CREATE TABLE transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, deleted_at TEXT);
@@ -79,13 +48,6 @@ function createDatabase() {
     CREATE TABLE categories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
     CREATE TABLE refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL);
     CREATE TABLE transfer_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT);
-    CREATE TABLE client_diagnostics (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
   `);
   return database;
 }

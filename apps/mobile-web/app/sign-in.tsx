@@ -75,7 +75,7 @@ export default function SignInScreen() {
       </Card>
 
       <Text style={styles.privacyFooter}>
-        By continuing, you allow Spending Tracker to store a Device ID, a private device credential, and a session on this device for offline access and sync.
+        By continuing, you allow Spending Tracker to store a Device ID and session on this device for offline access and sync.
         Clearing site data or using a shared device can remove or expose this remembered profile.
       </Text>
     </ScreenContainer>

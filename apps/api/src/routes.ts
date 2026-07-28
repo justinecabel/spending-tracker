@@ -1,21 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import {
-  assertDeviceCredential,
-  authenticateOrCreateDeviceUserWithName,
   consumeTransferToken,
   createSession,
   createTransferToken,
-  deviceUserExists,
-  enrollLegacyDeviceCredential,
+  findOrCreateDeviceUserWithName,
   findOrCreateUser,
   regenerateTransferToken,
   refreshSession,
   updateUserPreferences,
   verifyGoogleToken,
 } from "./auth";
-import { config } from "./config";
-import { HttpError } from "./http-error";
 import { requireAuth } from "./middleware/auth";
 import {
   createCategory,
@@ -41,21 +36,9 @@ import {
   upsertCountdown,
 } from "./repositories";
 import { notifyUser } from "./realtime";
-import { FixedWindowRateLimiter } from "./security-limits";
 
 export const router = Router();
-const deviceRegistrationLimiter = new FixedWindowRateLimiter(
-  config.deviceRegistrationsPerWindow,
-  config.deviceRegistrationWindowMinutes * 60 * 1_000,
-);
-const transferAttemptLimiter = new FixedWindowRateLimiter(
-  config.transferAttemptsPerWindow,
-  config.transferAttemptWindowMinutes * 60 * 1_000,
-);
-const diagnosticLimiter = new FixedWindowRateLimiter(
-  config.diagnosticReportsPerWindow,
-  config.diagnosticWindowMinutes * 60 * 1_000,
-);
+const DEVICE_COOKIE_NAME = "spending_tracker_device";
 
 function currentUser(request: Request) {
   if (!request.user) {
@@ -68,29 +51,36 @@ function first(value: unknown) {
   return Array.isArray(value) ? String(value[0] ?? "") : String(value ?? "");
 }
 
-function requestedDeviceCredential(request: Request) {
-  const deviceId =
+function cookieValue(request: Request, name: string) {
+  const header = request.headers.cookie;
+  if (!header) {
+    return null;
+  }
+
+  const entry = header
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+
+  return entry ? decodeURIComponent(entry.slice(name.length + 1)) : null;
+}
+
+function setDeviceCookie(response: Response, deviceId: string) {
+  response.cookie(DEVICE_COOKIE_NAME, deviceId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: false,
+    maxAge: 1000 * 60 * 60 * 24 * 365,
+    path: "/",
+  });
+}
+
+function requestedDeviceId(request: Request) {
+  const explicitDeviceId =
     typeof request.body?.deviceId === "string" && request.body.deviceId.trim()
       ? request.body.deviceId.trim()
       : null;
-  const deviceSecret =
-    typeof request.body?.deviceSecret === "string" && request.body.deviceSecret
-      ? request.body.deviceSecret
-      : null;
-  return { deviceId, deviceSecret };
-}
-
-function enforceRateLimit(
-  response: Response,
-  limiter: FixedWindowRateLimiter,
-  key: string,
-) {
-  const result = limiter.consume(key);
-  if (result.allowed) {
-    return;
-  }
-  response.setHeader("Retry-After", String(result.retryAfterSeconds));
-  throw new HttpError(429, "Too many attempts; try again later");
+  return explicitDeviceId ?? cookieValue(request, DEVICE_COOKIE_NAME);
 }
 
 router.get("/health", (_request, response) => {
@@ -98,37 +88,26 @@ router.get("/health", (_request, response) => {
 });
 
 router.post("/auth/device", (request, response) => {
-  const credential = requestedDeviceCredential(request);
-  const deviceId = credential.deviceId ?? randomUUID();
-  if (!credential.deviceSecret) {
-    throw new HttpError(400, "Device credential is required");
-  }
-  if (!deviceUserExists(deviceId)) {
-    enforceRateLimit(response, deviceRegistrationLimiter, request.ip ?? "unknown");
-  }
+  const deviceId = requestedDeviceId(request) ?? randomUUID();
   const deviceName =
     typeof request.body?.deviceName === "string" && request.body.deviceName.trim()
       ? request.body.deviceName.trim()
       : null;
-  const user = authenticateOrCreateDeviceUserWithName(deviceId, credential.deviceSecret, deviceName);
+  const user = findOrCreateDeviceUserWithName(deviceId, deviceName);
+  setDeviceCookie(response, deviceId);
   response.json(createSession(user));
 });
 
 router.post("/auth/google", async (request, response) => {
   try {
     const identity = await verifyGoogleToken(String(request.body.idToken ?? ""));
-    const credential = requestedDeviceCredential(request);
-    if (credential.deviceId && credential.deviceSecret) {
-      assertDeviceCredential(credential.deviceId, credential.deviceSecret);
-    }
-    const deviceId = credential.deviceId && credential.deviceSecret ? credential.deviceId : null;
+    const deviceId = requestedDeviceId(request);
     const user = findOrCreateUser(identity, deviceId);
+    if (deviceId) {
+      setDeviceCookie(response, deviceId);
+    }
     response.json(createSession(user));
   } catch (error) {
-    if (error instanceof HttpError) {
-      response.status(error.status).json({ message: error.message });
-      return;
-    }
     response.status(400).json({
       message: error instanceof Error ? error.message : "Google authentication failed",
     });
@@ -138,8 +117,9 @@ router.post("/auth/google", async (request, response) => {
 router.post("/auth/refresh", (request, response) => {
   try {
     const session = refreshSession(String(request.body.refreshToken ?? ""));
-    const credential = requestedDeviceCredential(request);
-    enrollLegacyDeviceCredential(session.user, credential.deviceId, credential.deviceSecret);
+    if (session.user.deviceId) {
+      setDeviceCookie(response, session.user.deviceId);
+    }
     response.json(session);
   } catch (error) {
     response.status(401).json({
@@ -150,14 +130,13 @@ router.post("/auth/refresh", (request, response) => {
 
 router.post("/auth/transfer-consume", (request, response) => {
   try {
-    enforceRateLimit(response, transferAttemptLimiter, request.ip ?? "unknown");
     const session = consumeTransferToken(String(request.body.token ?? ""));
+    const deviceId = requestedDeviceId(request);
+    if (deviceId) {
+      setDeviceCookie(response, deviceId);
+    }
     response.json(session);
   } catch (error) {
-    if (error instanceof HttpError) {
-      response.status(error.status).json({ message: error.message });
-      return;
-    }
     response.status(400).json({
       message: error instanceof Error ? error.message : "Transfer failed",
     });
@@ -176,7 +155,6 @@ router.patch("/me", requireAuth, (request, response) => {
 });
 
 router.post("/diagnostics/client", requireAuth, (request, response) => {
-  enforceRateLimit(response, diagnosticLimiter, currentUser(request).id);
   const result = createClientDiagnostic(currentUser(request).id, request.body, {
     remoteAddress: request.ip,
     userAgent: request.get("user-agent") ?? null,
@@ -198,11 +176,6 @@ router.post("/auth/transfer-token/regenerate", requireAuth, (request, response) 
 
 router.post("/auth/import-device-data", requireAuth, (request, response) => {
   const user = currentUser(request);
-  const credential = requestedDeviceCredential(request);
-  if (!credential.deviceId || !credential.deviceSecret) {
-    throw new HttpError(401, "Device credential is required");
-  }
-  assertDeviceCredential(credential.deviceId, credential.deviceSecret);
   const result = importDeviceData(user.id, request.body);
   notifyUser(user.id, ["categories", "transactions", "budgets", "debts", "countdown", "report", "reports"]);
   response.json(result);
@@ -210,11 +183,6 @@ router.post("/auth/import-device-data", requireAuth, (request, response) => {
 
 router.post("/auth/own-device-data", requireAuth, (request, response) => {
   const user = currentUser(request);
-  const credential = requestedDeviceCredential(request);
-  if (!credential.deviceId || !credential.deviceSecret) {
-    throw new HttpError(401, "Device credential is required");
-  }
-  assertDeviceCredential(credential.deviceId, credential.deviceSecret);
   const result = ownDeviceData(user.id, request.body);
   notifyUser(result.deviceUser.id, ["categories", "transactions", "budgets", "debts", "countdown", "report", "reports", "me"]);
   response.json(result);

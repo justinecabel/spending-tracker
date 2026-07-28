@@ -4,7 +4,6 @@ import { nanoid } from "nanoid";
 import { db } from "../src/db/client";
 import { runMigrations } from "../src/db/migrate";
 import { createClientDiagnostic } from "../src/repositories";
-import { config } from "../src/config";
 
 test("client diagnostics are validated and persisted with a report id", () => {
   runMigrations();
@@ -16,14 +15,6 @@ test("client diagnostics are validated and persisted with a report id", () => {
       VALUES (?, ?, 'Diagnostic QA', NULL, ?, ?, NULL, 1, 'USD', ?, ?, ?)
     `,
   ).run(userId, `${userId}@example.test`, `google-${userId}`, `device-${userId}`, now, now, now);
-
-  const originalMaxPerUser = config.diagnosticMaxPerUser;
-  config.diagnosticMaxPerUser = 2;
-  const originalConsoleInfo = console.info;
-  const logLines: string[] = [];
-  console.info = (...values: unknown[]) => {
-    logLines.push(values.map(String).join(" "));
-  };
 
   try {
     const result = createClientDiagnostic(userId, {
@@ -57,19 +48,7 @@ test("client diagnostics are validated and persisted with a report id", () => {
     const bugPayload = JSON.parse(bugRow.payload_json) as Record<string, any>;
     assert.equal(bugPayload.kind, "bug-report");
     assert.equal(bugPayload.userText, "The test button did not respond.");
-    assert.throws(
-      () => createClientDiagnostic(userId, {
-        kind: "bug-report",
-        client: {},
-        notificationTest: null,
-        userText: "Third report should be rejected.",
-      }, { userAgent: "QA browser" }),
-      /storage limit reached/,
-    );
-    assert.equal(logLines.some((line) => line.includes("The test button did not respond.")), false);
   } finally {
-    config.diagnosticMaxPerUser = originalMaxPerUser;
-    console.info = originalConsoleInfo;
     db.prepare("DELETE FROM client_diagnostics WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM users WHERE id = ?").run(userId);
   }

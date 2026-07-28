@@ -88,7 +88,7 @@ Tailscale is a separate private sidecar. Log it in manually after Compose starts
 
 ```bash
 docker exec -it spending-tracker-tailscale tailscale up
-docker exec spending-tracker-tailscale tailscale funnel --bg localhost:4000
+docker exec spending-tracker-tailscale tailscale serve --bg localhost:4000
 ```
 
 On Windows, schedule the Docker API/Tailscale stack to restart every 12 hours:

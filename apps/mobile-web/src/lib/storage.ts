@@ -7,10 +7,6 @@ const PWA_HANDOFF_COOKIE_COUNT_KEY = `${PWA_HANDOFF_COOKIE_PREFIX}count`;
 const PWA_HANDOFF_COOKIE_MAX_AGE = 600;
 const PWA_HANDOFF_COOKIE_CHUNK_SIZE = 3_000;
 const PWA_HANDOFF_COOKIE_MAX_CHUNKS = 24;
-const PWA_HANDOFF_COOKIE_SENSITIVE_KEYS = new Set([
-  "spending-tracker-session",
-  "spending-tracker-device-secret",
-]);
 
 let pwaStoragePrepared: Promise<void> | null = null;
 let pwaHandoffResponderInstalled = false;
@@ -104,7 +100,7 @@ function readPwaHandoffCookie() {
 }
 
 function writePwaHandoffCookie(handoff: PwaStorageHandoff) {
-  const serialized = encodeCookiePayload(JSON.stringify(sanitizePwaHandoffForCookie(handoff)));
+  const serialized = encodeCookiePayload(JSON.stringify(handoff));
   const chunks = serialized.match(new RegExp(`.{1,${PWA_HANDOFF_COOKIE_CHUNK_SIZE}}`, "g")) ?? [];
   if (chunks.length > PWA_HANDOFF_COOKIE_MAX_CHUNKS) {
     return;
@@ -117,17 +113,6 @@ function writePwaHandoffCookie(handoff: PwaStorageHandoff) {
     document.cookie = `${PWA_HANDOFF_COOKIE_PREFIX}${index}=${chunk}; ${cookieOptions}`;
   });
   document.cookie = `${PWA_HANDOFF_COOKIE_COUNT_KEY}=${chunks.length}; ${cookieOptions}`;
-}
-
-export function sanitizePwaHandoffForCookie(handoff: PwaStorageHandoff): PwaStorageHandoff {
-  return {
-    ...handoff,
-    data: Object.fromEntries(
-      Object.entries(handoff.data ?? {}).filter(
-        ([key]) => !PWA_HANDOFF_COOKIE_SENSITIVE_KEYS.has(key),
-      ),
-    ),
-  };
 }
 
 function applyStorageHandoff(handoff: PwaStorageHandoff | null) {
@@ -231,8 +216,7 @@ async function requestPwaStorageHandoff() {
 /**
  * Some browsers expose the installed PWA as a separate storage container.
  * Keep a small, same-origin handoff snapshot so the installed app can restore
- * non-sensitive state before Zustand rehydrates. Cookie fallback never carries
- * bearer sessions or device credentials.
+ * the app's persisted state before Zustand rehydrates.
  */
 export function preparePwaStorage() {
   if (typeof window === "undefined") {

@@ -9,9 +9,6 @@ type SummaryRangeInput = {
   cycleOffset?: number;
 };
 
-export const MAX_CUSTOM_RANGE_DAYS = 366;
-const MAX_BUDGET_MONTHS = 13;
-
 export type ResolvedSummaryRange = {
   key: string;
   title: string;
@@ -19,54 +16,16 @@ export type ResolvedSummaryRange = {
   from?: string;
   to?: string;
   forecastTo?: string;
-  error?: string;
 };
 
-export function budgetMonthsForRange(
-  range: Pick<ResolvedSummaryRange, "from" | "to" | "forecastTo" | "error">,
-  now = new Date(),
-) {
-  if (range.error) {
-    return [];
-  }
+export function budgetMonthsForRange(range: Pick<ResolvedSummaryRange, "from" | "to" | "forecastTo">, now = new Date()) {
   const start = startOfMonth(range.from ? new Date(range.from) : now);
   const end = startOfMonth(new Date(range.forecastTo ?? range.to ?? now));
-  if (
-    !Number.isFinite(start.getTime()) ||
-    !Number.isFinite(end.getTime()) ||
-    start.getTime() > end.getTime()
-  ) {
-    return [];
-  }
   const months: string[] = [];
-  for (
-    let cursor = start;
-    cursor <= end && months.length < MAX_BUDGET_MONTHS;
-    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
-  ) {
+  for (let cursor = start; cursor <= end; cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)) {
     months.push(`${cursor.getFullYear()}-${`${cursor.getMonth() + 1}`.padStart(2, "0")}`);
   }
   return months;
-}
-
-export async function mapWithConcurrency<T, Result>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<Result>,
-) {
-  const results = new Array<Result>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, Math.trunc(concurrency)), items.length);
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextIndex < items.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await mapper(items[index], index);
-      }
-    }),
-  );
-  return results;
 }
 
 export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()): ResolvedSummaryRange {
@@ -108,33 +67,13 @@ export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()):
       };
     }
     case "custom-date": {
-      if (!input.customFrom || !input.customTo) {
-        return {
-          key: "custom-date:incomplete",
-          title: "Custom dates",
-          subtitle: "Pick a start and end date",
-          error: "Pick a start and end date",
-        };
-      }
-
-      const customStart = parseDateInput(input.customFrom);
-      const customEndDay = parseDateInput(input.customTo);
-      if (!customStart || !customEndDay) {
-        return invalidCustomRange("Enter valid start and end dates");
-      }
-      if (customStart.getTime() > customEndDay.getTime()) {
-        return invalidCustomRange("Start date must be on or before end date");
-      }
-
-      const windowDays =
-        Math.round((customEndDay.getTime() - customStart.getTime()) / 86_400_000) + 1;
-      if (windowDays > MAX_CUSTOM_RANGE_DAYS) {
-        return invalidCustomRange(`Custom ranges are limited to ${MAX_CUSTOM_RANGE_DAYS} days`);
-      }
-
-      const customEnd = endOfDay(customEndDay);
-      const from = shiftDays(customStart, cycleOffset * windowDays).toISOString();
-      const to = shiftDays(customEnd, cycleOffset * windowDays).toISOString();
+      const customStart = input.customFrom ? startOfDay(new Date(`${input.customFrom}T00:00:00`)) : undefined;
+      const customEnd = input.customTo ? endOfDay(new Date(`${input.customTo}T00:00:00`)) : undefined;
+      const windowDays = customStart && customEnd
+        ? Math.max(1, Math.round((startOfDay(customEnd).getTime() - customStart.getTime()) / 86_400_000) + 1)
+        : 0;
+      const from = customStart ? shiftDays(customStart, cycleOffset * windowDays).toISOString() : undefined;
+      const to = customEnd ? shiftDays(customEnd, cycleOffset * windowDays).toISOString() : undefined;
       return {
         key: `custom-date:${from ?? ""}:${to ?? ""}`,
         title: "Custom dates",
@@ -189,31 +128,6 @@ export function resolveSummaryRange(input: SummaryRangeInput, now = new Date()):
         forecastTo: endOfMonth(referenceDate).toISOString(),
       };
   }
-}
-
-function invalidCustomRange(message: string): ResolvedSummaryRange {
-  return {
-    key: `custom-date:invalid:${message}`,
-    title: "Custom dates",
-    subtitle: message,
-    error: message,
-  };
-}
-
-function parseDateInput(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return null;
-  }
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
-    return null;
-  }
-  return startOfDay(date);
 }
 
 export function buildSpendingReport(

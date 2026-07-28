@@ -1,20 +1,9 @@
 import { requestPersistentStorage, storage } from "./storage";
 
 const DEVICE_STORAGE_KEY = "spending-tracker-device-id";
-const DEVICE_SECRET_STORAGE_KEY = "spending-tracker-device-secret";
 
 function makeDeviceId() {
-  return `device-${globalThis.crypto.randomUUID()}`;
-}
-
-function makeDeviceSecret() {
-  const bytes = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(bytes);
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return `device-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export async function getDeviceId() {
@@ -35,22 +24,6 @@ export async function ensureDeviceId() {
   const created = makeDeviceId();
   await storage.setItem(DEVICE_STORAGE_KEY, created);
   return created;
-}
-
-export async function getDeviceSecret() {
-  return storage.getItem(DEVICE_SECRET_STORAGE_KEY);
-}
-
-export async function ensureDeviceCredential() {
-  const deviceId = await ensureDeviceId();
-  const existingSecret = await getDeviceSecret();
-  if (existingSecret) {
-    return { deviceId, deviceSecret: existingSecret };
-  }
-
-  const deviceSecret = makeDeviceSecret();
-  await storage.setItem(DEVICE_SECRET_STORAGE_KEY, deviceSecret);
-  return { deviceId, deviceSecret };
 }
 
 export async function getLocalDeviceLabel() {
