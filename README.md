@@ -33,6 +33,10 @@ pnpm dev:api
 ## Environment
 
 Copy `apps/api/.env.example` to `apps/api/.env`.
+Production startup requires a deployment-specific `JWT_SECRET` containing at
+least 32 characters. Missing values and the placeholders from the example file
+are rejected. The remaining security-limit variables have conservative
+defaults and can be tuned for the expected account and diagnostic volume.
 
 For Google Sign-In in Expo, set the client IDs in `apps/mobile-web/app.config.ts`.
 
@@ -44,7 +48,10 @@ The backend can also run in Docker with SQLite persisted in a named volume:
 docker compose up --build api
 ```
 
-This starts the API on [http://localhost:4000](http://localhost:4000) and stores the database under `/app/data/spending-tracker.sqlite` inside the container, backed by the `spending-tracker-api-data` volume.
+This stores the database under `/app/data/spending-tracker.sqlite` in the
+bind-mounted `docker-data/database` directory. The API container runs as a
+non-root user with a read-only root filesystem, bounded CPU, memory, process
+count, and rotated container logs.
 
 You can stop it with:
 

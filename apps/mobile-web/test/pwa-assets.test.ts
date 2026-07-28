@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
+import { sanitizePwaHandoffForCookie } from "../src/lib/storage";
 
 const publicAsset = (name: string) => new URL(`../public/${name}`, import.meta.url);
 
@@ -115,5 +116,23 @@ describe("PWA assets", () => {
 
     expect(offlinePage).toContain("Try again");
     expect(offlinePage).toContain('window.addEventListener("online"');
+  });
+
+  it("never places bearer sessions or device credentials in PWA handoff cookies", () => {
+    const sanitized = sanitizePwaHandoffForCookie({
+      version: 2,
+      savedAt: "2026-07-27T00:00:00.000Z",
+      data: {
+        "spending-tracker-session": "access-and-refresh-tokens",
+        "spending-tracker-device-secret": "device-proof",
+        "spending-tracker-device-id": "device-visible-id",
+        "spending-tracker-appearance": "dark",
+      },
+    });
+
+    expect(sanitized.data).toEqual({
+      "spending-tracker-device-id": "device-visible-id",
+      "spending-tracker-appearance": "dark",
+    });
   });
 });

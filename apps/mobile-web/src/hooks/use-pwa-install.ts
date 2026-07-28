@@ -103,8 +103,9 @@ export function usePwaInstall(pwaTheme: PwaTheme = { surface: "#FFFDF8" }) {
       ensureMetaTags(surface);
     }
 
-    // Capture the current signed-in session, device ID, saved profiles, and
-    // other app data immediately before the browser creates the PWA window.
+    // Capture the install handoff immediately before the browser creates the
+    // PWA window. Cookie fallback sanitization excludes session and device
+    // credentials; those profiles must be restored through a safer channel.
     capturePwaStorageHandoff();
     await installPrompt.prompt();
     const result = await installPrompt.userChoice;

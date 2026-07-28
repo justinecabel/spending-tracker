@@ -17,6 +17,11 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   api:
@@ -31,11 +36,35 @@ services:
       NODE_ENV: production
       PORT: "4000"
       DB_PATH: /app/data/spending-tracker.sqlite
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong deployment-specific value}
       EMPTY_ACCOUNT_GRACE_HOURS: ${EMPTY_ACCOUNT_GRACE_HOURS:-12}
       INACTIVE_ACCOUNT_RETENTION_MONTHS: ${INACTIVE_ACCOUNT_RETENTION_MONTHS:-12}
       CLEANUP_INTERVAL_HOURS: ${CLEANUP_INTERVAL_HOURS:-12}
+      MAX_DEVICE_ACCOUNTS: ${MAX_DEVICE_ACCOUNTS:-1000}
+      DEVICE_REGISTRATIONS_PER_WINDOW: ${DEVICE_REGISTRATIONS_PER_WINDOW:-10}
+      DIAGNOSTIC_MAX_PER_USER: ${DIAGNOSTIC_MAX_PER_USER:-20}
+      DIAGNOSTIC_MAX_TOTAL: ${DIAGNOSTIC_MAX_TOTAL:-1000}
+      DIAGNOSTIC_RETENTION_DAYS: ${DIAGNOSTIC_RETENTION_DAYS:-30}
+      WEBSOCKET_MAX_PER_USER: ${WEBSOCKET_MAX_PER_USER:-5}
+      WEBSOCKET_MAX_TOTAL: ${WEBSOCKET_MAX_TOTAL:-200}
     volumes:
       - ./docker-data/database:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       tailscale:
         condition: service_started

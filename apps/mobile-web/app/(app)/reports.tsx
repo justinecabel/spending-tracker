@@ -8,7 +8,7 @@ import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { formatDateTimeLabel, formatMoney } from "../../src/lib/date";
-import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange, type ResolvedSummaryRange } from "../../src/lib/summary-range";
+import { buildSpendingReport, budgetMonthsForRange, mapWithConcurrency, resolveSummaryRange, type ResolvedSummaryRange } from "../../src/lib/summary-range";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
 import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
 import { summaryRangeStore } from "../../src/state/summary-range";
@@ -120,6 +120,7 @@ export default function ReportsScreen() {
   const budgetMonths = budgetMonthsForRange(range);
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "reports", range.key],
+    enabled: !range.error,
     queryFn: async () => {
       try {
         const transactions = await api.transactions({
@@ -168,9 +169,12 @@ export default function ReportsScreen() {
   });
   const budgetsQuery = useQuery({
     queryKey: ["budgets", userId, "forecast", budgetMonths.join(",")],
+    enabled: !range.error,
     queryFn: async () => {
-      const results = await Promise.all(
-        budgetMonths.map(async (month) => {
+      const results = await mapWithConcurrency(
+        budgetMonths,
+        4,
+        async (month) => {
           const cacheId = transactionScopeKey(userId, `budgets:${month}`);
           const cached = offlineCacheStore.getState().budgetsByScope[cacheId];
           try {
@@ -180,7 +184,7 @@ export default function ReportsScreen() {
           } catch {
             return cached ?? [];
           }
-        }),
+        },
       );
       return results.flat();
     },
@@ -297,7 +301,7 @@ export default function ReportsScreen() {
     return [];
   };
   const hasTransactions = transactions.length > 0;
-  const queryErrorMessage = transactionsQuery.error?.message ?? categoriesQuery.error?.message ?? null;
+  const queryErrorMessage = range.error ?? transactionsQuery.error?.message ?? categoriesQuery.error?.message ?? null;
 
   return (
     <insightStatContext.Provider value={(stat) => setSelectedStat({ ...stat, details: statDetails(stat.label) })}>

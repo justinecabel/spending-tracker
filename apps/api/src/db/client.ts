@@ -7,4 +7,5 @@ const resolvedPath = path.resolve(process.cwd(), config.dbPath);
 fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
 
 export const db = new DatabaseSync(resolvedPath);
+db.exec("PRAGMA foreign_keys = ON;");
 db.exec("PRAGMA journal_mode = WAL;");

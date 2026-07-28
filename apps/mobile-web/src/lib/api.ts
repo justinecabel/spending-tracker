@@ -22,7 +22,7 @@ import type {
   UpdateDebtInput,
   UpdateUserPreferencesInput,
 } from "@spending-tracker/shared";
-import { ensureDeviceId, getLocalDeviceLabel } from "./device";
+import { ensureDeviceCredential, getLocalDeviceLabel } from "./device";
 import { sessionStore } from "../state/session";
 
 // Expo replaces direct EXPO_PUBLIC_* references while building the web bundle.
@@ -39,6 +39,8 @@ export const apiUrl = String(
 export const realtimeUrl = apiUrl.replace(/^http/i, "ws");
 
 let refreshPromise: Promise<string | null> | null = null;
+const TRANSACTION_PAGE_SIZE = 200;
+const TRANSACTION_MAX_ROWS = 10_000;
 
 async function performRequest(path: string, init?: RequestInit) {
   const token = sessionStore.getState().accessToken;
@@ -65,13 +67,14 @@ async function refreshAccessToken() {
       return null;
     }
 
+    const deviceCredential = await ensureDeviceCredential();
     const response = await fetch(`${apiUrl}/auth/refresh`, {
       method: "POST",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ refreshToken }),
+      body: JSON.stringify({ refreshToken, ...deviceCredential }),
     });
 
     if (!response.ok) {
@@ -113,17 +116,49 @@ async function request<T>(path: string, init?: RequestInit, retry = true): Promi
   return response.json() as Promise<T>;
 }
 
+async function fetchTransactions(query: Record<string, string> = {}) {
+  const transactions: Transaction[] = [];
+
+  for (let offset = 0; offset < TRANSACTION_MAX_ROWS; offset += TRANSACTION_PAGE_SIZE) {
+    const search = new URLSearchParams({
+      ...query,
+      limit: String(TRANSACTION_PAGE_SIZE),
+      offset: String(offset),
+    }).toString();
+    const page = await request<Transaction[]>(`/transactions?${search}`);
+    transactions.push(...page);
+    if (page.length < TRANSACTION_PAGE_SIZE) {
+      return transactions;
+    }
+  }
+
+  const overflowSearch = new URLSearchParams({
+    ...query,
+    limit: "1",
+    offset: String(TRANSACTION_MAX_ROWS),
+  }).toString();
+  const overflow = await request<Transaction[]>(`/transactions?${overflowSearch}`);
+  if (overflow.length === 0) {
+    return transactions;
+  }
+  throw new Error("Too many transactions to load at once; choose a narrower date range");
+}
+
 export const api = {
-  signInWithDevice: async () =>
-    request<AuthResponse>("/auth/device", {
+  signInWithDevice: async () => {
+    const deviceCredential = await ensureDeviceCredential();
+    return request<AuthResponse>("/auth/device", {
       method: "POST",
-      body: JSON.stringify({ deviceId: await ensureDeviceId(), deviceName: await getLocalDeviceLabel() }),
-    }),
-  signInWithGoogle: async (idToken: string) =>
-    request<AuthResponse>("/auth/google", {
+      body: JSON.stringify({ ...deviceCredential, deviceName: await getLocalDeviceLabel() }),
+    });
+  },
+  signInWithGoogle: async (idToken: string) => {
+    const deviceCredential = await ensureDeviceCredential();
+    return request<AuthResponse>("/auth/google", {
       method: "POST",
-      body: JSON.stringify({ idToken, deviceId: await ensureDeviceId() }),
-    }),
+      body: JSON.stringify({ idToken, ...deviceCredential }),
+    });
+  },
   createTransferToken: () =>
     request<TransferTokenResponse>("/auth/transfer-token", {
       method: "POST",
@@ -135,13 +170,15 @@ export const api = {
   consumeTransferToken: async (input: ConsumeTransferTokenInput) =>
     request<AuthResponse>("/auth/transfer-consume", {
       method: "POST",
-      body: JSON.stringify({ ...input, deviceId: await ensureDeviceId() }),
+      body: JSON.stringify(input),
     }),
-  refreshToken: (refreshToken: string) =>
-    request<AuthResponse>("/auth/refresh", {
+  refreshToken: async (refreshToken: string) => {
+    const deviceCredential = await ensureDeviceCredential();
+    return request<AuthResponse>("/auth/refresh", {
       method: "POST",
-      body: JSON.stringify({ refreshToken }),
-    }),
+      body: JSON.stringify({ refreshToken, ...deviceCredential }),
+    });
+  },
   me: () => request<{ user: AuthResponse["user"] }>("/me"),
   updateMe: (input: UpdateUserPreferencesInput) =>
     request<{ user: AuthResponse["user"] }>("/me", {
@@ -153,16 +190,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  importDeviceData: async (input: Omit<ImportDeviceDataInput, "deviceId">) =>
-    request<ImportDeviceDataResult>("/auth/import-device-data", {
+  importDeviceData: async (input: Omit<ImportDeviceDataInput, "deviceId">) => {
+    const deviceCredential = await ensureDeviceCredential();
+    return request<ImportDeviceDataResult>("/auth/import-device-data", {
       method: "POST",
-      body: JSON.stringify({ ...input, deviceId: await ensureDeviceId() }),
-    }),
-  ownDeviceData: async () =>
-    request<OwnDeviceDataResult>("/auth/own-device-data", {
+      body: JSON.stringify({ ...input, ...deviceCredential }),
+    });
+  },
+  ownDeviceData: async () => {
+    const deviceCredential = await ensureDeviceCredential();
+    return request<OwnDeviceDataResult>("/auth/own-device-data", {
       method: "POST",
-      body: JSON.stringify({ deviceId: await ensureDeviceId() }),
-    }),
+      body: JSON.stringify(deviceCredential),
+    });
+  },
   categories: () => request<Category[]>("/categories"),
   createCategory: (input: CreateCategoryInput) =>
     request<Category>("/categories", {
@@ -178,10 +219,7 @@ export const api = {
     request<Category>(`/categories/${id}`, {
       method: "DELETE",
     }),
-  transactions: (query?: Record<string, string>) => {
-    const search = new URLSearchParams(query ?? {}).toString();
-    return request<Transaction[]>(`/transactions${search ? `?${search}` : ""}`);
-  },
+  transactions: (query?: Record<string, string>) => fetchTransactions(query),
   createTransaction: (input: CreateTransactionInput) =>
     request<Transaction>("/transactions", {
       method: "POST",

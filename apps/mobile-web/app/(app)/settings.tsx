@@ -187,16 +187,18 @@ export default function SettingsScreen() {
   return (
     <ScreenContainer screenKey="settings">
       <PageHeader title="Settings" />
-      <Card>
-        <View style={styles.list}>
-          <View>
+      <Card style={styles.compactSettingsCard}>
+        <View style={styles.profileFacts}>
+          <View style={styles.profileFact}>
             <Text style={styles.label}>Name</Text>
             <Text style={styles.value}>{user?.name ?? "Unknown"}</Text>
           </View>
-          <View>
+          <View style={styles.profileFact}>
             <Text style={styles.label}>Login mode</Text>
             <Text style={styles.value}>{loginMode}</Text>
           </View>
+        </View>
+        <View style={styles.list}>
           {hasMultipleProfiles ? (
             <View style={styles.switchBlock}>
               <Text style={styles.label}>Profiles</Text>
@@ -309,7 +311,7 @@ export default function SettingsScreen() {
         ) : null}
       </Card>
 
-      <Card>
+      <Card style={styles.compactSettingsCard}>
         <SectionTitle
           title="Appearance"
           subtitle="Choose the scheme plus optional primary and secondary colors for this profile."
@@ -332,11 +334,30 @@ export default function SettingsScreen() {
           />
         </View>
         <View style={styles.accentEditor}>
-          <View style={styles.labelWithHelp}>
-            <Text style={styles.label}>Custom colors</Text>
-            <HelpTooltip
-              label="About custom colors"
-              text="Primary changes buttons and highlights. Secondary changes soft selected and supporting surfaces."
+          <View style={styles.accentHeaderRow}>
+            <View style={styles.labelWithHelp}>
+              <Text style={styles.label}>Custom colors</Text>
+              <HelpTooltip
+                label="About custom colors"
+                text="Primary changes buttons and highlights. Secondary changes soft selected and supporting surfaces."
+              />
+            </View>
+            <PillButton
+              label="Save colors"
+              tone="ghost"
+              onPress={() => {
+                const nextAccent = normalizeCustomAccent(accentDraft);
+                const nextSecondaryAccent = normalizeCustomAccent(secondaryAccentDraft);
+                if (!nextAccent || !nextSecondaryAccent) {
+                  setAccentError("Enter two 6-digit hex colors, for example #7C3AED and #EDE9FE.");
+                  return;
+                }
+                setAppearanceAccent(appearanceProfileKey, nextAccent);
+                setAppearanceSecondaryAccent(appearanceProfileKey, nextSecondaryAccent);
+                setAccentDraft(nextAccent);
+                setSecondaryAccentDraft(nextSecondaryAccent);
+                setAccentError(null);
+              }}
             />
           </View>
           <View style={styles.colorEditorRow}>
@@ -389,25 +410,6 @@ export default function SettingsScreen() {
               autoCorrect={false}
               maxLength={7}
               style={styles.accentInput}
-            />
-          </View>
-          <View style={styles.accentInputRow}>
-            <PillButton
-              label="Save colors"
-              tone="ghost"
-              onPress={() => {
-                const nextAccent = normalizeCustomAccent(accentDraft);
-                const nextSecondaryAccent = normalizeCustomAccent(secondaryAccentDraft);
-                if (!nextAccent || !nextSecondaryAccent) {
-                  setAccentError("Enter two 6-digit hex colors, for example #7C3AED and #EDE9FE.");
-                  return;
-                }
-                setAppearanceAccent(appearanceProfileKey, nextAccent);
-                setAppearanceSecondaryAccent(appearanceProfileKey, nextSecondaryAccent);
-                setAccentDraft(nextAccent);
-                setSecondaryAccentDraft(nextSecondaryAccent);
-                setAccentError(null);
-              }}
             />
           </View>
           {customAccent || customSecondaryAccent ? (
@@ -705,8 +707,21 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  compactSettingsCard: {
+    gap: 12,
+    padding: 14,
+  },
+  profileFacts: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  profileFact: {
+    flex: 1,
+    minWidth: 132,
+  },
   list: {
-    gap: 16,
+    gap: 10,
   },
   label: {
     color: theme.colors.muted,
@@ -751,13 +766,14 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   accentEditor: {
-    gap: 10,
+    gap: 6,
   },
-  accentInputRow: {
-    flexDirection: "row",
+  accentHeaderRow: {
     alignItems: "center",
+    flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    justifyContent: "space-between",
+    gap: 8,
   },
   colorEditorRow: {
     flexDirection: "row",

@@ -89,6 +89,7 @@ export default function TransactionsScreen() {
   const transactionCacheId = transactionScopeKey(userId, `transactions:${range.key}`);
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "all", range.key],
+    enabled: !range.error,
     queryFn: async () => {
       const cached = offlineCacheStore.getState().transactionsByScope[transactionCacheId];
       try {
@@ -256,6 +257,7 @@ export default function TransactionsScreen() {
       }}
     >
       <PageHeader title="Transactions" />
+      {range.error ? <Text style={styles.errorText}>{range.error}</Text> : null}
       <Card>
         <View style={styles.list}>
           {transactions.length === 0 ? (

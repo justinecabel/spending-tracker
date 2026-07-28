@@ -9,6 +9,7 @@ export function runMigrations() {
       avatar_url TEXT,
       google_sub TEXT UNIQUE,
       device_id TEXT UNIQUE,
+      device_secret_hash TEXT,
       sync_code TEXT UNIQUE,
       is_device_only INTEGER NOT NULL DEFAULT 0,
       currency TEXT NOT NULL DEFAULT 'USD',
@@ -52,6 +53,9 @@ export function runMigrations() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_user_client_id
       ON transactions(user_id, client_id)
       WHERE client_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_transactions_user_occurred_at
+      ON transactions(user_id, occurred_at DESC);
 
     CREATE TABLE IF NOT EXISTS budgets (
       id TEXT PRIMARY KEY,
@@ -101,11 +105,14 @@ export function runMigrations() {
       user_id TEXT NOT NULL,
       payload_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_client_diagnostics_user_created_at
       ON client_diagnostics(user_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_client_diagnostics_created_at
+      ON client_diagnostics(created_at);
 
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       id TEXT PRIMARY KEY,
@@ -113,7 +120,9 @@ export function runMigrations() {
       token TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      used_at TEXT,
+      family_id TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS transfer_tokens (
@@ -123,8 +132,11 @@ export function runMigrations() {
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       used_at TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE INDEX IF NOT EXISTS idx_transfer_tokens_user_active
+      ON transfer_tokens(user_id, used_at, expires_at);
   `);
 
   const userColumns = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
@@ -137,12 +149,17 @@ export function runMigrations() {
     db.exec("ALTER TABLE users ADD COLUMN is_device_only INTEGER NOT NULL DEFAULT 0;");
   }
 
+  if (!userColumns.some((column) => column.name === "device_secret_hash")) {
+    db.exec("ALTER TABLE users ADD COLUMN device_secret_hash TEXT;");
+  }
+
   if (!userColumns.some((column) => column.name === "sync_code")) {
     db.exec("ALTER TABLE users ADD COLUMN sync_code TEXT;");
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sync_code ON users(sync_code) WHERE sync_code IS NOT NULL;");
   } else {
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sync_code ON users(sync_code) WHERE sync_code IS NOT NULL;");
   }
+  db.exec("UPDATE users SET sync_code = NULL WHERE sync_code IS NOT NULL;");
 
   if (!userColumns.some((column) => column.name === "last_seen_at")) {
     db.exec("ALTER TABLE users ADD COLUMN last_seen_at TEXT;");
@@ -156,4 +173,15 @@ export function runMigrations() {
   if (!categoryColumns.some((column) => column.name === "is_system")) {
     db.exec("ALTER TABLE categories ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;");
   }
+
+  const refreshTokenColumns = db.prepare("PRAGMA table_info(refresh_tokens)").all() as Array<{ name: string }>;
+  if (!refreshTokenColumns.some((column) => column.name === "used_at")) {
+    db.exec("ALTER TABLE refresh_tokens ADD COLUMN used_at TEXT;");
+  }
+  if (!refreshTokenColumns.some((column) => column.name === "family_id")) {
+    db.exec("ALTER TABLE refresh_tokens ADD COLUMN family_id TEXT;");
+  }
+  db.exec("UPDATE refresh_tokens SET family_id = id WHERE family_id IS NULL;");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_transfer_tokens_user_active ON transfer_tokens(user_id, used_at, expires_at);");
 }

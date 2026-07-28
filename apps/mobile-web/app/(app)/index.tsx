@@ -5,7 +5,7 @@ import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { combineDateAndTime, formatDateLabel, formatDateTimeLabel, formatMoney, toDateInputValue } from "../../src/lib/date";
 import { calculateCountdownProgress } from "../../src/lib/countdown-progress";
-import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange } from "../../src/lib/summary-range";
+import { buildSpendingReport, budgetMonthsForRange, mapWithConcurrency, resolveSummaryRange } from "../../src/lib/summary-range";
 import { TransactionForm } from "../../src/components/transaction-form";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
 import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
@@ -75,6 +75,7 @@ export default function DashboardScreen() {
 
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "summary", range.key],
+    enabled: !range.error,
     queryFn: async () => {
       try {
         const transactions = await api.transactions({
@@ -110,9 +111,12 @@ export default function DashboardScreen() {
 
   const budgetsQuery = useQuery({
     queryKey: ["budgets", userId, "forecast", budgetMonths.join(",")],
+    enabled: !range.error,
     queryFn: async () => {
-      const results = await Promise.all(
-        budgetMonths.map(async (month) => {
+      const results = await mapWithConcurrency(
+        budgetMonths,
+        4,
+        async (month) => {
           const cacheId = transactionScopeKey(userId, `budgets:${month}`);
           const cached = offlineCacheStore.getState().budgetsByScope[cacheId];
           try {
@@ -122,7 +126,7 @@ export default function DashboardScreen() {
           } catch {
             return cached ?? [];
           }
-        }),
+        },
       );
       return results.flat();
     },
@@ -517,6 +521,7 @@ export default function DashboardScreen() {
   const monthCard = (
     <Card>
       <SectionTitle title={range.title} subtitle={range.subtitle} subtitleMode="inline" />
+      {range.error ? <Text style={styles.errorText}>{range.error}</Text> : null}
       <View style={styles.metrics}>
         <Metric label="Spent" value={formatMoney(report?.expenseTotal ?? 0, user?.currency ?? "USD")} tone="warning" />
       </View>
