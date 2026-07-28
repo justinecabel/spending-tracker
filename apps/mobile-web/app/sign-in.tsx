@@ -42,18 +42,14 @@ export default function SignInScreen() {
     <ScreenContainer screenKey="sign-in">
       <View style={styles.authColumn}>
         <PageHeader
-          title="Spending Tracker"
-          subtitle="Private, offline-ready expense tracking with optional sync."
+          title="Sign in"
+          subtitle="Continue with this device ID or link this device to an existing account."
         />
-        <Text style={styles.intro}>
-          Record spending manually, monitor debts, and review reports. Your saved tracker remains available when your
-          connection drops.
-        </Text>
       </View>
 
       <Card style={styles.authCard}>
         <SectionTitle
-          title="Continue with Device ID"
+          title="Using Device ID"
           subtitle={
             hasRememberedDevice
               ? "Use the device profile already stored here."
@@ -104,11 +100,6 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     maxWidth: 520,
     paddingHorizontal: 6,
-  },
-  intro: {
-    color: theme.colors.muted,
-    ...theme.typography.body,
-    marginTop: 10,
   },
   actions: {
     alignItems: "flex-start",

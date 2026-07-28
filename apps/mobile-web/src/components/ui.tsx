@@ -1,5 +1,5 @@
 import { PropsWithChildren, useState, type ReactNode } from "react";
-import { Modal, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Modal, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { theme } from "../theme";
 import { WebPressable as Pressable } from "./web-pressable";
 
@@ -108,13 +108,7 @@ export function SectionTitle({
   return (
     <View style={styles.header}>
       <View style={styles.headingRow}>
-        <Text
-          accessibilityRole="header"
-          style={[styles.title, compact && styles.titleCompact]}
-          {...(Platform.OS === "web" ? ({ "aria-level": 2 } as any) : {})}
-        >
-          {title}
-        </Text>
+        <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
         {subtitle && subtitleMode === "help" ? <HelpTooltip text={subtitle} label={`About ${title}`} /> : null}
       </View>
       {subtitle && subtitleMode === "inline" ? (
@@ -139,9 +133,7 @@ export function PageHeader({
   return (
     <View style={[styles.pageHeader, compact && styles.pageHeaderCompact]}>
       <View style={styles.headingRow}>
-        <Text accessibilityRole="header" style={[styles.pageTitle, compact && styles.pageTitleCompact]}>
-          {title}
-        </Text>
+        <Text style={[styles.pageTitle, compact && styles.pageTitleCompact]}>{title}</Text>
         {subtitle && subtitleMode === "help" ? <HelpTooltip text={subtitle} label={`About ${title}`} /> : null}
       </View>
       {subtitle && subtitleMode === "inline" ? (

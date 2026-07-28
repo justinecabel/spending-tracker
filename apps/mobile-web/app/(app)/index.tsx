@@ -4,7 +4,6 @@ import { Card, FormModal, Metric, PageHeader, PillButton, SectionTitle } from ".
 import { ScreenContainer } from "../../src/components/layout";
 import { api } from "../../src/lib/api";
 import { combineDateAndTime, formatDateLabel, formatDateTimeLabel, formatMoney, toDateInputValue } from "../../src/lib/date";
-import { calculateCountdownProgress } from "../../src/lib/countdown-progress";
 import { buildSpendingReport, budgetMonthsForRange, mapWithConcurrency, resolveSummaryRange } from "../../src/lib/summary-range";
 import { TransactionForm } from "../../src/components/transaction-form";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
@@ -401,844 +400,4 @@ export default function DashboardScreen() {
       if (isOfflineOrNetworkError(error)) {
         const archivedCategory = queueCategoryUpdate(id, { archived: true });
         const queuedUpdate = offlineQueueStore.getState().mutations.at(-1);
-        if (queuedUpdate?.entity === "category" && queuedUpdate.action === "update") {
-          offlineQueueStore.getState().remove(queuedUpdate.id);
-        }
-        enqueue({
-          id: nanoid(),
-          userId,
-          entity: "category",
-          action: "delete",
-          payload: { id },
-          createdAt: new Date().toISOString(),
-        });
-        return archivedCategory;
-      }
-      throw error;
-    }
-  }
-
-  async function handleCreateTransaction(input: Parameters<typeof api.createTransaction>[0]) {
-    const clientId = input.clientId ?? `client-${Date.now()}`;
-    const payload = {
-      ...input,
-      clientId,
-    };
-    if (isOfflineOrNetworkError()) {
-      addDraft({
-        userId: user?.id ?? "offline-user",
-        categoryId: payload.categoryId,
-        amount: payload.amount,
-        kind: payload.kind,
-        occurredAt: payload.occurredAt,
-        note: payload.note ?? null,
-        merchant: payload.merchant ?? null,
-        clientId,
-      });
-      enqueue({
-        id: nanoid(),
-        userId,
-        entity: "transaction",
-        action: "create",
-        payload,
-        createdAt: new Date().toISOString(),
-      });
-      return;
-    }
-
-    try {
-      await createTransaction.mutateAsync(payload);
-    } catch (error) {
-      if (isOfflineOrNetworkError(error)) {
-        addDraft({
-          userId: user?.id ?? "offline-user",
-          categoryId: payload.categoryId,
-          amount: payload.amount,
-          kind: payload.kind,
-          occurredAt: payload.occurredAt,
-          note: payload.note ?? null,
-          merchant: payload.merchant ?? null,
-          clientId,
-        });
-        enqueue({
-          id: nanoid(),
-          userId,
-          entity: "transaction",
-          action: "create",
-          payload,
-          createdAt: new Date().toISOString(),
-        });
-        return;
-      }
-      throw error;
-    }
-  }
-
-  const offlineDrafts = drafts.filter((transaction) => {
-    if (transaction.userId !== userId) {
-      return false;
-    }
-
-    if (range.from && transaction.occurredAt < range.from) {
-      return false;
-    }
-    if (range.to && transaction.occurredAt > range.to) {
-      return false;
-    }
-    return true;
-  });
-  const transactions = [...offlineDrafts, ...(transactionsQuery.data ?? [])].sort(
-    (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
-  );
-  const historyTransactions = [
-    ...drafts.filter((transaction) => transaction.userId === userId),
-    ...(historyQuery.data ?? cachedHistory ?? []),
-  ];
-  // A newly signed-in profile has no query result or offline cache yet. Keep
-  // the first render safe while the server creates/returns its categories.
-  const categories = categoriesQuery.data ?? cachedCategories ?? [];
-  const budgets = budgetsQuery.data ?? [];
-  const report = buildSpendingReport(range.title, transactions, categories);
-  const forecast = buildForecastAnalysis({ transactions, historyTransactions, categories, budgets, range });
-  const projectedPeriodEnd = forecast.projectedTotal;
-  const openDebts = (debtsQuery.data ?? []).filter((debt) => !debt.paidAt);
-  const outstandingDebtTotal = openDebts.reduce((sum, debt) => sum + debt.amount, 0);
-  const nextDebt = [...openDebts].sort(
-    (left, right) => new Date(left.dueAt).getTime() - new Date(right.dueAt).getTime(),
-  )[0];
-  const stacked = width < 820;
-  const compact = width < 640;
-  const countdownProgress = savedCountdown
-    ? calculateCountdownProgress(savedCountdown.targetAt, savedCountdown.createdAt, new Date(countdownNow))
-    : { daysRemaining: 0, totalDays: 1, fillPercent: 0, expired: false };
-  const countdownExpired = countdownProgress.expired;
-  const countdownDays = countdownProgress.daysRemaining;
-  const countdownFill = countdownProgress.fillPercent;
-  const countdownWaveForwardWebProps = Platform.OS === "web"
-    ? ({ dataSet: { countdownWave: "forward" } } as any)
-    : {};
-
-  const monthCard = (
-    <Card>
-      <SectionTitle title={range.title} subtitle={range.subtitle} subtitleMode="inline" />
-      {range.error ? <Text style={styles.errorText}>{range.error}</Text> : null}
-      <View style={styles.metrics}>
-        <Metric label="Spent" value={formatMoney(report?.expenseTotal ?? 0, user?.currency ?? "USD")} tone="warning" />
-      </View>
-    </Card>
-  );
-
-  const predictionCard = (
-    <Card>
-      <SectionTitle title="Forecast" />
-      <View style={styles.predictionMetaRow}>
-        <Text style={styles.predictionMeta} numberOfLines={1}>
-          Projected total Â· {forecast.confidenceLabel.toLowerCase()} confidence
-        </Text>
-      </View>
-      <View style={styles.predictionRow}>
-        <Text style={styles.predictionValue}>{formatMoney(projectedPeriodEnd, user?.currency ?? "USD")}</Text>
-        <PillButton label="View report" tone="ghost" onPress={() => appShellStore.getState().setTab("reports")} />
-      </View>
-    </Card>
-  );
-
-  const recentCard = (
-    <Card>
-      <SectionTitle title="Recent transactions" />
-      <View style={styles.list}>
-        {transactions.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No transactions yet. Use Add transaction to start building your history.</Text>
-          </View>
-        ) : (
-          transactions.slice(0, 5).map((transaction, index, items) => {
-          const isDraft = transaction.id.startsWith("client-");
-          return (
-          <Pressable
-            key={transaction.id}
-            style={[styles.row, isDraft && styles.pendingRow, index === items.length - 1 && styles.rowLast]}
-            onPress={() => appShellStore.getState().showTransaction(transaction.id)}
-          >
-            <View>
-              <Text style={styles.rowTitle}>{transaction.merchant ?? transaction.note ?? "Transaction"}</Text>
-              <Text style={styles.rowMeta}>
-                {formatDateLabel(transaction.occurredAt)}
-                {isDraft ? " Â· Pending sync" : ""}
-              </Text>
-            </View>
-            <Text style={styles.rowAmount}>{formatMoney(transaction.amount, user?.currency ?? "USD")}</Text>
-          </Pressable>
-          );
-          })
-        )}
-      </View>
-    </Card>
-  );
-
-  const topCategoriesCard = (
-    <Card>
-      <SectionTitle title="Top categories" />
-      <View style={styles.list}>
-        {report.byCategory.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No categories to rank yet. Your top categories will appear after you add expenses.</Text>
-          </View>
-        ) : (
-          report.byCategory.map((item, index, items) => (
-          <View
-            key={item.categoryId ?? item.categoryName}
-            style={[styles.row, index === items.length - 1 && styles.rowLast]}
-          >
-            <View style={styles.categoryName}>
-              <Text style={styles.rowTitle}>{item.categoryName}</Text>
-            </View>
-            <Text style={styles.rowAmount}>{formatMoney(item.total, user?.currency ?? "USD")}</Text>
-          </View>
-          ))
-        )}
-      </View>
-    </Card>
-  );
-
-  const debtCard = (
-    <Card>
-      <View style={styles.sectionHeader}>
-        <SectionTitle title="Debt watcher" subtitle="Upcoming bills and unpaid balances." />
-        <PillButton label="View debts" tone="ghost" onPress={() => appShellStore.getState().setTab("debts")} />
-      </View>
-      <View style={styles.metrics}>
-        <Metric label="Open items" value={String(openDebts.length)} />
-        <Metric label="Total outstanding" value={formatMoney(outstandingDebtTotal, user?.currency ?? "USD")} />
-      </View>
-      {nextDebt ? (
-        <View style={styles.debtPreview}>
-          <View style={styles.debtPreviewText}>
-            <Text style={styles.rowTitle}>{nextDebt.merchant}</Text>
-            <Text style={styles.rowMeta}>
-              {new Date(nextDebt.dueAt).getTime() < Date.now() ? "Overdue, due" : "Next due"} {formatDateTimeLabel(nextDebt.dueAt)}
-            </Text>
-          </View>
-          <Text style={styles.rowAmount}>{formatMoney(nextDebt.amount, user?.currency ?? "USD")}</Text>
-        </View>
-      ) : (
-        <Text style={styles.emptyText}>No unpaid debts.</Text>
-      )}
-    </Card>
-  );
-
-  const countdownCard = (
-    <Card style={styles.countdownCard}>
-      {savedCountdown ? (
-        <View style={[styles.countdownContent, compact && styles.countdownContentCompact]}>
-          <View
-            style={[
-              styles.countdownObject,
-              compact && styles.countdownObjectCompact,
-              countdownExpired && styles.countdownObjectExpired,
-            ]}
-            accessibilityLabel={`${countdownFill}% of the countdown remaining`}
-          >
-            <View
-              style={[
-                styles.countdownObjectFill,
-                countdownExpired && styles.countdownObjectFillExpired,
-                { height: `${countdownFill}%` },
-              ]}
-            >
-              <View style={styles.countdownFillBody} />
-              <View style={styles.countdownWaveSurface} pointerEvents="none">
-                <View {...countdownWaveForwardWebProps} style={styles.countdownWaveTrack}>
-                  <Svg width={264} height={34} viewBox="0 0 264 34">
-                    <Path
-                      d="M0 16 C11 6 22 6 33 16 S55 26 66 16 S88 6 99 16 S121 26 132 16 S154 6 165 16 S187 26 198 16 S220 6 231 16 S253 26 264 16 L264 34 L0 34 Z"
-                      fill={theme.colors.accent}
-                      opacity={0.32}
-                    />
-                  </Svg>
-                </View>
-              </View>
-            </View>
-            <View style={styles.countdownObjectLabel}>
-              <Text
-                style={[
-                  styles.countdownNumber,
-                  compact && styles.countdownNumberCompact,
-                  countdownExpired && styles.countdownUrgentText,
-                ]}
-              >
-                {countdownExpired ? "0" : countdownDays}
-              </Text>
-              <Text
-                style={[
-                  styles.countdownUnit,
-                  compact && styles.countdownUnitCompact,
-                  countdownExpired && styles.countdownUrgentText,
-                ]}
-              >
-                {countdownExpired ? "DONE" : countdownDays === 1 ? "DAY" : "DAYS"}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.countdownDetails}>
-            <Text style={styles.countdownEyebrow}>COUNTDOWN</Text>
-            <Text style={styles.countdownTitle} numberOfLines={1}>{savedCountdown.title}</Text>
-            <Text style={styles.countdownDate} numberOfLines={1}>{formatDateLabel(savedCountdown.targetAt)}</Text>
-          </View>
-          <View style={styles.countdownMenu}>
-            <Pressable
-              accessibilityLabel="Countdown actions"
-              accessibilityRole="button"
-              accessibilityState={{ expanded: isCountdownMenuOpen }}
-              onPress={() => setIsCountdownMenuOpen((open) => !open)}
-              style={[styles.countdownMenuButton, isCountdownMenuOpen && styles.countdownMenuButtonOpen]}
-            >
-              <Text style={[styles.countdownMenuDots, isCountdownMenuOpen && styles.countdownMenuDotsOpen]}>â€¢â€¢â€¢</Text>
-            </Pressable>
-            {isCountdownMenuOpen ? (
-              <View style={styles.countdownMenuPopover}>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={openCountdownForm}
-                  style={styles.countdownMenuItem}
-                >
-                  <Text style={styles.countdownMenuItemText}>Edit</Text>
-                </Pressable>
-                <View style={styles.countdownMenuDivider} />
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setIsCountdownMenuOpen(false);
-                    deleteCountdownMutation.mutate();
-                  }}
-                  style={styles.countdownMenuItem}
-                >
-                  <Text style={[styles.countdownMenuItemText, styles.countdownMenuRemoveText]}>Remove</Text>
-                </Pressable>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      ) : (
-        <View style={styles.countdownEmpty}>
-          <View>
-            <Text style={styles.countdownEyebrow}>COUNTDOWN</Text>
-            <Text style={styles.emptyText}>Add a title and date to start.</Text>
-          </View>
-          <PillButton label="Add countdown" tone="ghost" onPress={openCountdownForm} />
-        </View>
-      )}
-      {countdownSyncError ? <Text style={styles.errorText}>{countdownSyncError}</Text> : null}
-    </Card>
-  );
-
-  const merchantSuggestions = [...historyTransactions]
-    .sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime())
-    .reduce<Array<{ merchant: string; categoryId: string | null }>>((saved, transaction) => {
-      const merchant = transaction.merchant?.trim() ?? "";
-      if (merchant && !saved.some((item) => item.merchant.toLowerCase() === merchant.toLowerCase())) {
-        saved.push({ merchant, categoryId: transaction.categoryId ?? null });
-      }
-      return saved;
-    }, []);
-
-  return (
-    <View style={styles.screen}>
-      <ScreenContainer
-        screenKey="home"
-        fabSafeInset
-        refreshing={isRefreshing}
-        onRefresh={async () => {
-          setIsRefreshing(true);
-          try {
-            await Promise.all([categoriesQuery.refetch(), transactionsQuery.refetch(), historyQuery.refetch(), budgetsQuery.refetch(), debtsQuery.refetch()]);
-          } finally {
-            setIsRefreshing(false);
-          }
-        }}
-      >
-        <PageHeader title="Summary" />
-        {stacked ? (
-          <View style={[styles.column, styles.columnStackedSafe, compact && styles.columnCompactSafe]}>
-            {monthCard}
-            {predictionCard}
-            {countdownCard}
-            {debtCard}
-            {recentCard}
-            {topCategoriesCard}
-          </View>
-        ) : (
-          <View style={styles.desktopGrid}>
-            <View style={styles.desktopColumn}>
-              {monthCard}
-              {predictionCard}
-              {recentCard}
-            </View>
-            <View style={styles.desktopColumn}>
-              {debtCard}
-              {countdownCard}
-              {topCategoriesCard}
-            </View>
-          </View>
-        )}
-      </ScreenContainer>
-
-      <Pressable style={[styles.fab, compact && styles.fabCompact]} onPress={() => setIsQuickAddOpen(true)}>
-        <Text style={styles.fabPlus}>+</Text>
-        <Text style={[styles.fabLabel, compact && styles.fabLabelCompact]}>Add transaction</Text>
-      </Pressable>
-
-      <FormModal visible={isQuickAddOpen} title="Quick add" onClose={() => setIsQuickAddOpen(false)} size="wide">
-            {categoriesQuery.isPending ? (
-              <Text style={styles.modalInfo}>Loading categories...</Text>
-            ) : categoriesQuery.error ? (
-              <View style={styles.quickAddFallback}>
-                <Text style={styles.errorText}>{categoriesQuery.error.message}</Text>
-                <PillButton
-                  label="Retry"
-                  tone="ghost"
-                  onPress={() => {
-                    void categoriesQuery.refetch();
-                  }}
-                />
-              </View>
-            ) : (
-              <TransactionForm
-                categories={categoriesQuery.data ?? []}
-                merchantSuggestions={merchantSuggestions}
-                onSubmit={async (input) => {
-                  await handleCreateTransaction(input);
-                  setIsQuickAddOpen(false);
-                }}
-                onCreateCategory={({ name, color }) =>
-                  handleCreateCategory({
-                    name,
-                    color,
-                    icon: "wallet",
-                    kind: "expense",
-                  })
-                }
-                onUpdateCategory={(id, data) =>
-                  handleUpdateCategory(id, data)
-                }
-                onDeleteCategory={handleDeleteCategory}
-              />
-            )}
-      </FormModal>
-
-      <FormModal
-        visible={isCountdownOpen}
-        title={savedCountdown ? "Edit countdown" : "Add countdown"}
-        subtitle="Choose an event and its date."
-        onClose={closeCountdownForm}
-        footer={<PillButton label="Save countdown" onPress={handleSaveCountdown} />}
-      >
-        <View style={styles.countdownForm}>
-          <View style={styles.countdownField}>
-            <Text style={styles.formLabel}>Title</Text>
-            <TextInput
-              value={countdownTitle}
-              onChangeText={setCountdownTitle}
-              placeholder="Countdown title"
-              placeholderTextColor={theme.colors.muted}
-              style={styles.formInput}
-            />
-          </View>
-          <View style={styles.countdownField}>
-            <Text style={styles.formLabel}>Date</Text>
-            <TextInput
-              {...(Platform.OS === "web" ? ({ type: "date" } as any) : {})}
-              value={countdownDate}
-              onChangeText={setCountdownDate}
-              style={styles.formInput}
-            />
-          </View>
-          {countdownError ? <Text style={styles.errorText}>{countdownError}</Text> : null}
-        </View>
-      </FormModal>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  column: {
-    gap: theme.spacing.lg,
-  },
-  columnStackedSafe: {
-    marginBottom: 80,
-  },
-  columnCompactSafe: {
-    marginBottom: 60,
-  },
-  desktopGrid: {
-    flexDirection: "row",
-    gap: theme.spacing.lg,
-    width: "100%",
-  },
-  desktopColumn: {
-    flex: 1,
-    minWidth: 0,
-    gap: theme.spacing.lg,
-  },
-  metrics: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing.lg,
-  },
-  predictionRow: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 16,
-    justifyContent: "space-between",
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: theme.spacing.md,
-  },
-  debtPreview: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: theme.spacing.lg,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-  },
-  debtPreviewText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 3,
-  },
-  countdownCard: {
-    backgroundColor: "transparent",
-    borderWidth: 0,
-    overflow: "visible",
-    zIndex: 10,
-    ...(Platform.OS === "web" ? ({ boxShadow: "none" } as any) : {}),
-  },
-  countdownContent: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 24,
-    justifyContent: "center",
-    width: "100%",
-  },
-  countdownContentCompact: {
-    gap: 12,
-    justifyContent: "space-between",
-  },
-  countdownObject: {
-    alignItems: "center",
-    backgroundColor: theme.colors.field,
-    borderColor: theme.colors.border,
-    borderRadius: 28,
-    borderWidth: 1,
-    height: 132,
-    justifyContent: "center",
-    overflow: "hidden",
-    position: "relative",
-    width: 132,
-  },
-  countdownObjectCompact: {
-    borderRadius: 22,
-    flexShrink: 0,
-    height: 96,
-    width: 96,
-  },
-  countdownObjectExpired: {
-    borderColor: theme.colors.warning,
-  },
-  countdownObjectFill: {
-    bottom: 0,
-    left: 0,
-    overflow: "hidden",
-    position: "absolute",
-    right: 0,
-  },
-  countdownObjectFillExpired: {
-    opacity: 0,
-  },
-  countdownFillBody: {
-    backgroundColor: theme.colors.accent,
-    bottom: 0,
-    left: 0,
-    opacity: 0.32,
-    position: "absolute",
-    right: 0,
-    top: 34,
-  },
-  countdownWaveSurface: {
-    height: 34,
-    left: 0,
-    overflow: "hidden",
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
-  countdownWaveTrack: {
-    height: 34,
-    left: -66,
-    position: "absolute",
-    top: 0,
-    width: 264,
-  },
-  countdownObjectLabel: {
-    alignItems: "center",
-    zIndex: 1,
-  },
-  countdownNumber: {
-    color: theme.colors.ink,
-    fontSize: 46,
-    fontWeight: "900",
-    lineHeight: 48,
-  },
-  countdownNumberCompact: {
-    fontSize: 34,
-    lineHeight: 36,
-  },
-  countdownUnit: {
-    color: theme.colors.accent,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-  },
-  countdownUnitCompact: {
-    fontSize: 10,
-    lineHeight: 14,
-  },
-  countdownUrgentText: {
-    color: theme.colors.warning,
-  },
-  countdownDetails: {
-    flex: 1,
-    flexShrink: 1,
-    gap: 4,
-    minWidth: 0,
-  },
-  countdownEyebrow: {
-    color: theme.colors.muted,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "900",
-    letterSpacing: 1.1,
-  },
-  countdownTitle: {
-    color: theme.colors.ink,
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "800",
-  },
-  countdownDate: {
-    color: theme.colors.muted,
-    ...theme.typography.label,
-  },
-  countdownMenu: {
-    alignSelf: "center",
-    flexShrink: 0,
-    position: "relative",
-    zIndex: 20,
-  },
-  countdownMenuButton: {
-    alignItems: "center",
-    backgroundColor: theme.colors.accentSoft,
-    borderRadius: 20,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  countdownMenuButtonOpen: {
-    backgroundColor: theme.colors.accent,
-  },
-  countdownMenuDots: {
-    color: theme.colors.accentSoftText,
-    fontSize: 16,
-    fontWeight: "900",
-    letterSpacing: -1,
-    lineHeight: 20,
-  },
-  countdownMenuDotsOpen: {
-    color: theme.colors.accentText,
-  },
-  countdownMenuPopover: {
-    backgroundColor: theme.colors.card,
-    borderColor: theme.colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    minWidth: 112,
-    overflow: "hidden",
-    position: "absolute",
-    right: 0,
-    top: 46,
-    zIndex: 30,
-    ...(Platform.OS === "web" ? theme.shadow : {}),
-  },
-  countdownMenuItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  countdownMenuItemText: {
-    color: theme.colors.ink,
-    fontSize: 14,
-    fontWeight: "800",
-    lineHeight: 18,
-  },
-  countdownMenuDivider: {
-    backgroundColor: theme.colors.border,
-    height: 1,
-  },
-  countdownMenuRemoveText: {
-    color: theme.colors.warning,
-  },
-  countdownEmpty: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 14,
-    justifyContent: "space-between",
-  },
-  countdownForm: {
-    gap: 14,
-    marginBottom: 15,
-  },
-  countdownField: {
-    gap: 8,
-  },
-  formLabel: {
-    color: theme.colors.ink,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-  formInput: {
-    backgroundColor: theme.colors.field,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    color: theme.colors.ink,
-    fontSize: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent" } as any) : {}),
-  },
-  predictionMetaRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 10,
-    flex: 1,
-    minWidth: 0,
-  },
-  predictionMeta: {
-    color: theme.colors.muted,
-    flexShrink: 1,
-    ...theme.typography.body,
-  },
-  predictionValue: {
-    color: theme.colors.accent,
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: "800",
-  },
-  list: {
-    gap: theme.spacing.md,
-  },
-  quickAddFallback: {
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  modalInfo: {
-    color: theme.colors.muted,
-    ...theme.typography.body,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  rowLast: {
-    borderBottomWidth: 0,
-  },
-  pendingRow: {
-    backgroundColor: "rgba(194, 65, 12, 0.10)",
-    borderLeftColor: theme.colors.warning,
-    borderLeftWidth: 3,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: 10,
-  },
-  rowTitle: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: theme.colors.ink,
-  },
-  rowMeta: {
-    ...theme.typography.label,
-    color: theme.colors.muted,
-  },
-  categoryName: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  rowAmount: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: theme.colors.ink,
-  },
-  errorText: {
-    color: theme.colors.warning,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  emptyState: {
-    paddingVertical: 4,
-  },
-  emptyText: {
-    color: theme.colors.muted,
-    ...theme.typography.body,
-  },
-  fab: {
-    position: "absolute",
-    right: 20,
-    bottom: 24,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: theme.colors.accent,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    ...theme.shadow,
-  },
-  fabCompact: {
-    left: 12,
-    right: 12,
-    bottom: 12,
-    justifyContent: "center",
-    paddingVertical: 12,
-  },
-  fabPlus: {
-    color: "#FFFFFF",
-    fontSize: 22,
-    fontWeight: "800",
-    lineHeight: 22,
-  },
-  fabLabel: {
-    color: "#FFFFFF",
-    ...theme.typography.control,
-    fontWeight: "700",
-  },
-  fabLabelCompact: {
-    fontSize: 14,
-  },
-});
+        if (queuedUpdate?.entity === "category" && queuedUpdate.aßÏz¶‰žËkºwµç@€ð½Y¥•Üø4(€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õôø4(€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”4(€€€€€€€€€€€€€…•ÍÍ¥‰¥±¥Ñå1…‰•°ô‰½Õ¹Ñ‘½Ý¸…Ñ¥½¹Ìˆ4(€€€€€€€€€€€€€…•ÍÍ¥‰¥±¥ÑåI½±”ô‰‰ÕÑÑ½¸ˆ4(€€€€€€€€€€€€€…•ÍÍ¥‰¥±¥ÑåMÑ…Ñ”õíì•áÁ…¹‘•è¥Í½Õ¹Ñ‘½Ý¹5•¹Õ=Á•¸õô4(€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøÍ•Ñ%Í½Õ¹Ñ‘½Ý¹5•¹Õ=Á•¸ ¡½Á•¸¤€ôø€…½Á•¸¥ô4(€€€€€€€€€€€€€ÍÑå±”õímÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ	ÕÑÑ½¸°¥Í½Õ¹Ñ‘½Ý¹5•¹Õ=Á•¸€˜˜ÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ	ÕÑÑ½¹=Á•¹uô4(€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õímÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ½ÑÌ°¥Í½Õ¹Ñ‘½Ý¹5•¹Õ=Á•¸€˜˜ÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ½ÑÍ=Á•¹uôûŠ‹Š‹Šˆð½Q•áÐø4(€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€í¥Í½Õ¹Ñ‘½Ý¹5•¹Õ=Á•¸€ü€ 4(€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹ÕA½Á½Ù•Éôø4(€€€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”4(€€€€€€€€€€€€€€€€€…•ÍÍ¥‰¥±¥ÑåI½±”ô‰‰ÕÑÑ½¸ˆ4(€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõí½Á•¹½Õ¹Ñ‘½Ý¹½Éµô4(€€€€€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ%Ñ•µô4(€€€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ%Ñ•µQ•áÑôù‘¥Ðð½Q•áÐø4(€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ¥Ù¥‘•Éô€¼ø4(€€€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”4(€€€€€€€€€€€€€€€€€…•ÍÍ¥‰¥±¥ÑåI½±”ô‰‰ÕÑÑ½¸ˆ4(€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€€€€€Í•Ñ%Í½Õ¹Ñ‘½Ý¹5•¹Õ=Á•¸¡™…±Í”¤ì4(€€€€€€€€€€€€€€€€€€€‘•±•Ñ•½Õ¹Ñ‘½Ý¹5ÕÑ…Ñ¥½¸¹µÕÑ…Ñ” ¤ì4(€€€€€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ%Ñ•µô4(€€€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õímÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹Õ%Ñ•µQ•áÐ°ÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹5•¹ÕI•µ½Ù•Q•áÑuôùI•µ½Ù”ð½Q•áÐø4(€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€ð½Y¥•Üø4(€€€€€€¤€è€ 4(€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹µÁÑåôø4(€€€€€€€€€€ñY¥•Üø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹å•‰É½Ýôù=U9Q=]8ð½Q•áÐø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹•µÁÑåQ•áÑôù‘„Ñ¥Ñ±”…¹‘…Ñ”Ñ¼ÍÑ…ÉÐ¸ð½Q•áÐø4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€ñA¥±±	ÕÑÑ½¸±…‰•°ô‰‘½Õ¹Ñ‘½Ý¸ˆÑ½¹”ô‰¡½ÍÐˆ½¹AÉ•ÍÌõí½Á•¹½Õ¹Ñ‘½Ý¹½Éµô€¼ø4(€€€€€€€€ð½Y¥•Üø4(€€€€€€¥ô4(€€€€€í½Õ¹Ñ‘½Ý¹Må¹ÉÉ½È€ü€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹•ÉÉ½ÉQ•áÑôùí½Õ¹Ñ‘½Ý¹Må¹ÉÉ½Éôð½Q•áÐø€è¹Õ±±ô4(€€€€ð½…Éø4(€€¤ì4(4(€½¹ÍÐµ•É¡…¹ÑMÕ•ÍÑ¥½¹Ì€ôl¸¸¹¡¥ÍÑ½ÉåQÉ…¹Í…Ñ¥½¹Ít4(€€€€¹Í½ÉÐ ¡±•™Ð°É¥¡Ð¤€ôø¹•Ü…Ñ”¡É¥¡Ð¹½ÕÉÉ•‘Ð¤¹•ÑQ¥µ” ¤€´¹•Ü…Ñ”¡±•™Ð¹½ÕÉÉ•‘Ð¤¹•ÑQ¥µ” ¤¤4(€€€€¹É•‘Õ”ñÉÉ…äñìµ•É¡…¹ÐèÍÑÉ¥¹œì…Ñ•½Éå%èÍÑÉ¥¹œð¹Õ±°ôøø ¡Í…Ù•°ÑÉ…¹Í…Ñ¥½¸¤€ôøì4(€€€€€½¹ÍÐµ•É¡…¹Ð€ôÑÉ…¹Í…Ñ¥½¸¹µ•É¡…¹Ðü¹ÑÉ¥´ ¤€üü€ˆˆì4(€€€€€¥˜€¡µ•É¡…¹Ð€˜˜€…Í…Ù•¹Í½µ” ¡¥Ñ•´¤€ôø¥Ñ•´¹µ•É¡…¹Ð¹Ñ½1½Ý•É…Í” ¤€ôôôµ•É¡…¹Ð¹Ñ½1½Ý•É…Í” ¤¤¤ì4(€€€€€€€Í…Ù•¹ÁÕÍ ¡ìµ•É¡…¹Ð°…Ñ•½Éå%èÑÉ…¹Í…Ñ¥½¸¹…Ñ•½Éå%€üü¹Õ±°ô¤ì4(€€€€€ô4(€€€€€É•ÑÕÉ¸Í…Ù•ì4(€€€ô°mt¤ì4(4(€É•ÑÕÉ¸€ 4(€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹ÍÉ••¹ôø4(€€€€€€ñMÉ••¹½¹Ñ…¥¹•È4(€€€€€€€ÍÉ••¹-•äô‰¡½µ”ˆ4(€€€€€€€™…‰M…™•%¹Í•Ð4(€€€€€€€É•™É•Í¡¥¹œõí¥ÍI•™É•Í¡¥¹ô4(€€€€€€€½¹I•™É•Í õí…Íå¹Œ€ ¤€ôøì4(€€€€€€€€€Í•Ñ%ÍI•™É•Í¡¥¹œ¡ÑÉÕ”¤ì4(€€€€€€€€€ÑÉäì4(€€€€€€€€€€€…Ý…¥ÐAÉ½µ¥Í”¹…±°¡m…Ñ•½É¥•ÍEÕ•Éä¹É•™•Ñ  ¤°ÑÉ…¹Í…Ñ¥½¹ÍEÕ•Éä¹É•™•Ñ  ¤°¡¥ÍÑ½ÉåEÕ•Éä¹É•™•Ñ  ¤°‰Õ‘•ÑÍEÕ•Éä¹É•™•Ñ  ¤°‘•‰ÑÍEÕ•Éä¹É•™•Ñ  ¥t¤ì4(€€€€€€€€€ô™¥¹…±±äì4(€€€€€€€€€€€Í•Ñ%ÍI•™É•Í¡¥¹œ¡™…±Í”¤ì4(€€€€€€€€€ô4(€€€€€€€õô4(€€€€€€ø4(€€€€€€€€ñA…•!•…‘•ÈÑ¥Ñ±”ô‰MÕµµ…Éäˆ€¼ø4(€€€€€€€íÍÑ…­•€ü€ 4(€€€€€€€€€€ñY¥•ÜÍÑå±”õímÍÑå±•Ì¹½±Õµ¸°ÍÑå±•Ì¹½±Õµ¹MÑ…­•‘M…™”°½µÁ…Ð€˜˜ÍÑå±•Ì¹½±Õµ¹½µÁ…ÑM…™•uôø4(€€€€€€€€€€€íµ½¹Ñ¡…É‘ô4(€€€€€€€€€€€íÁÉ•‘¥Ñ¥½¹…É‘ô4(€€€€€€€€€€€í½Õ¹Ñ‘½Ý¹…É‘ô4(€€€€€€€€€€€í‘•‰Ñ…É‘ô4(€€€€€€€€€€€íÉ••¹Ñ…É‘ô4(€€€€€€€€€€€íÑ½Á…Ñ•½É¥•Í…É‘ô4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€¤€è€ 4(€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹‘•Í­Ñ½ÁÉ¥‘ôø4(€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹‘•Í­Ñ½Á½±Õµ¹ôø4(€€€€€€€€€€€€€íµ½¹Ñ¡…É‘ô4(€€€€€€€€€€€€€íÁÉ•‘¥Ñ¥½¹…É‘ô4(€€€€€€€€€€€€€íÉ••¹Ñ…É‘ô4(€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹‘•Í­Ñ½Á½±Õµ¹ôø4(€€€€€€€€€€€€€í‘•‰Ñ…É‘ô4(€€€€€€€€€€€€€í½Õ¹Ñ‘½Ý¹…É‘ô4(€€€€€€€€€€€€€íÑ½Á…Ñ•½É¥•Í…É‘ô4(€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€¥ô4(€€€€€€ð½MÉ••¹½¹Ñ…¥¹•Èø4(4(€€€€€€ñAÉ•ÍÍ…‰±”ÍÑå±”õímÍÑå±•Ì¹™…ˆ°½µÁ…Ð€˜˜ÍÑå±•Ì¹™…‰½µÁ…Ñuô½¹AÉ•ÍÌõì ¤€ôøÍ•Ñ%ÍEÕ¥­‘‘=Á•¸¡ÑÉÕ”¥ôø4(€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹™…‰A±ÕÍôø¬ð½Q•áÐø4(€€€€€€€€ñQ•áÐÍÑå±”õímÍÑå±•Ì¹™…‰1…‰•°°½µÁ…Ð€˜˜ÍÑå±•Ì¹™…‰1…‰•±½µÁ…Ñuôù‘ÑÉ…¹Í…Ñ¥½¸ð½Q•áÐø4(€€€€€€ð½AÉ•ÍÍ…‰±”ø4(4(€€€€€€ñ½Éµ5½‘…°Ù¥Í¥‰±”õí¥ÍEÕ¥­‘‘=Á•¹ôÑ¥Ñ±”ô‰EÕ¥¬…‘ˆ½¹±½Í”õì ¤€ôøÍ•Ñ%ÍEÕ¥­‘‘=Á•¸¡™…±Í”¥ôÍ¥é”ô‰Ý¥‘”ˆø4(€€€€€€€€€€€í…Ñ•½É¥•ÍEÕ•Éä¹¥ÍA•¹‘¥¹œ€ü€ 4(€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹µ½‘…±%¹™½ôù1½…‘¥¹œ…Ñ•½É¥•Ì¸¸¸ð½Q•áÐø4(€€€€€€€€€€€€¤€è…Ñ•½É¥•ÍEÕ•Éä¹•ÉÉ½È€ü€ 4(€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹ÅÕ¥­‘‘…±±‰…­ôø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹•ÉÉ½ÉQ•áÑôùí…Ñ•½É¥•ÍEÕ•Éä¹•ÉÉ½È¹µ•ÍÍ…•ôð½Q•áÐø4(€€€€€€€€€€€€€€€€ñA¥±±	ÕÑÑ½¸4(€€€€€€€€€€€€€€€€€±…‰•°ô‰I•ÑÉäˆ4(€€€€€€€€€€€€€€€€€Ñ½¹”ô‰¡½ÍÐˆ4(€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€€€€€Ù½¥…Ñ•½É¥•ÍEÕ•Éä¹É•™•Ñ  ¤ì4(€€€€€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€€€€¼ø4(€€€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€€€¤€è€ 4(€€€€€€€€€€€€€€ñQÉ…¹Í…Ñ¥½¹½É´4(€€€€€€€€€€€€€€€…Ñ•½É¥•Ìõí…Ñ•½É¥•ÍEÕ•Éä¹‘…Ñ„€üümuô4(€€€€€€€€€€€€€€€µ•É¡…¹ÑMÕ•ÍÑ¥½¹Ìõíµ•É¡…¹ÑMÕ•ÍÑ¥½¹Íô4(€€€€€€€€€€€€€€€½¹MÕ‰µ¥Ðõí…Íå¹Œ€¡¥¹ÁÕÐ¤€ôøì4(€€€€€€€€€€€€€€€€€…Ý…¥Ð¡…¹‘±•É•…Ñ•QÉ…¹Í…Ñ¥½¸¡¥¹ÁÕÐ¤ì4(€€€€€€€€€€€€€€€€€Í•Ñ%ÍEÕ¥­‘‘=Á•¸¡™…±Í”¤ì4(€€€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€€€½¹É•…Ñ•…Ñ•½Éäõì¡ì¹…µ”°½±½Èô¤€ôø4(€€€€€€€€€€€€€€€€€¡…¹‘±•É•…Ñ•…Ñ•½Éä¡ì4(€€€€€€€€€€€€€€€€€€€¹…µ”°4(€€€€€€€€€€€€€€€€€€€½±½È°4(€€€€€€€€€€€€€€€€€€€¥½¸è€‰Ý…±±•Ðˆ°4(€€€€€€€€€€€€€€€€€€€­¥¹è€‰•áÁ•¹Í”ˆ°4(€€€€€€€€€€€€€€€€€ô¤4(€€€€€€€€€€€€€€€ô4(€€€€€€€€€€€€€€€½¹UÁ‘…Ñ•…Ñ•½Éäõì¡¥°‘…Ñ„¤€ôø4(€€€€€€€€€€€€€€€€€¡…¹‘±•UÁ‘…Ñ•…Ñ•½Éä¡¥°‘…Ñ„¤4(€€€€€€€€€€€€€€€ô4(€€€€€€€€€€€€€€€½¹•±•Ñ•…Ñ•½Éäõí¡…¹‘±••±•Ñ•…Ñ•½Éåô4(€€€€€€€€€€€€€€¼ø4(€€€€€€€€€€€€¥ô4(€€€€€€ð½½Éµ5½‘…°ø4(4(€€€€€€ñ½Éµ5½‘…°4(€€€€€€€Ù¥Í¥‰±”õí¥Í½Õ¹Ñ‘½Ý¹=Á•¹ô4(€€€€€€€Ñ¥Ñ±”õíÍ…Ù•‘½Õ¹Ñ‘½Ý¸€ü€‰‘¥Ð½Õ¹Ñ‘½Ý¸ˆ€è€‰‘½Õ¹Ñ‘½Ý¸‰ô4(€€€€€€€ÍÕ‰Ñ¥Ñ±”ô‰¡½½Í”…¸•Ù•¹Ð…¹¥ÑÌ‘…Ñ”¸ˆ4(€€€€€€€½¹±½Í”õí±½Í•½Õ¹Ñ‘½Ý¹½Éµô4(€€€€€€€™½½Ñ•ÈõìñA¥±±	ÕÑÑ½¸±…‰•°ô‰M…Ù”½Õ¹Ñ‘½Ý¸ˆ½¹AÉ•ÍÌõí¡…¹‘±•M…Ù•½Õ¹Ñ‘½Ý¹ô€¼ùô4(€€€€€€ø4(€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹½Éµôø4(€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹¥•±‘ôø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹™½Éµ1…‰•±ôùQ¥Ñ±”ð½Q•áÐø4(€€€€€€€€€€€€ñQ•áÑ%¹ÁÕÐ4(€€€€€€€€€€€€€Ù…±Õ”õí½Õ¹Ñ‘½Ý¹Q¥Ñ±•ô4(€€€€€€€€€€€€€½¹¡…¹•Q•áÐõíÍ•Ñ½Õ¹Ñ‘½Ý¹Q¥Ñ±•ô4(€€€€€€€€€€€€€Á±…•¡½±‘•Èô‰½Õ¹Ñ‘½Ý¸Ñ¥Ñ±”ˆ4(€€€€€€€€€€€€€Á±…•¡½±‘•ÉQ•áÑ½±½ÈõíÑ¡•µ”¹½±½ÉÌ¹µÕÑ•‘ô4(€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹™½Éµ%¹ÁÕÑô4(€€€€€€€€€€€€¼ø4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Õ¹Ñ‘½Ý¹¥•±‘ôø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹™½Éµ1…‰•±ôù…Ñ”ð½Q•áÐø4(€€€€€€€€€€€€ñQ•áÑ%¹ÁÕÐ4(€€€€€€€€€€€€€ì¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ìÑåÁ”è€‰‘…Ñ”ˆô…Ì…¹ä¤€èíô¥ô4(€€€€€€€€€€€€€Ù…±Õ”õí½Õ¹Ñ‘½Ý¹…Ñ•ô4(€€€€€€€€€€€€€½¹¡…¹•Q•áÐõíÍ•Ñ½Õ¹Ñ‘½Ý¹…Ñ•ô4(€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹™½Éµ%¹ÁÕÑô4(€€€€€€€€€€€€¼ø4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€í½Õ¹Ñ‘½Ý¹ÉÉ½È€ü€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹•ÉÉ½ÉQ•áÑôùí½Õ¹Ñ‘½Ý¹ÉÉ½Éôð½Q•áÐø€è¹Õ±±ô4(€€€€€€€€ð½Y¥•Üø4(€€€€€€ð½½Éµ5½‘…°ø4(€€€€ð½Y¥•Üø4(€€¤ì4)ô4(4)½¹ÍÐÍÑå±•Ì€ôMÑå±•M¡••Ð¹É•…Ñ”¡ì4(€ÍÉ••¸èì4(€€€™±•àè€Ä°4(€ô°4(€½±Õµ¸èì4(€€€…ÀèÑ¡•µ”¹ÍÁ…¥¹œ¹±œ°4(€ô°4(€½±Õµ¹MÑ…­•‘M…™”èì4(€€€µ…É¥¹	½ÑÑ½´è€àÀ°4(€ô°4(€½±Õµ¹½µÁ…ÑM…™”èì4(€€€µ…É¥¹	½ÑÑ½´è€ØÀ°4(€ô°4(€‘•Í­Ñ½ÁÉ¥èì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€…ÀèÑ¡•µ”¹ÍÁ…¥¹œ¹±œ°4(€€€Ý¥‘Ñ è€ˆÄÀÀ”ˆ°4(€ô°4(€‘•Í­Ñ½Á½±Õµ¸èì4(€€€™±•àè€Ä°4(€€€µ¥¹]¥‘Ñ è€À°4(€€€…ÀèÑ¡•µ”¹ÍÁ…¥¹œ¹±œ°4(€ô°4(€µ•ÑÉ¥Ìèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…ÀèÑ¡•µ”¹ÍÁ…¥¹œ¹±œ°4(€ô°4(€ÁÉ•‘¥Ñ¥½¹I½Üèì4(€€€…±¥¹%Ñ•µÌè€‰™±•àµ•¹ˆ°4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€ÄØ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°4(€ô°4(€Í•Ñ¥½¹!•…‘•Èèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°4(€€€…±¥¹%Ñ•µÌè€‰™±•àµÍÑ…ÉÐˆ°4(€€€…ÀèÑ¡•µ”¹ÍÁ…¥¹œ¹µ°4(€ô°4(€‘•‰ÑAÉ•Ù¥•Üèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€…ÀèÑ¡•µ”¹ÍÁ…¥¹œ¹±œ°4(€€€Á…‘‘¥¹Q½Àè€ÄÐ°4(€€€‰½É‘•ÉQ½Á]¥‘Ñ è€Ä°4(€€€‰½É‘•ÉQ½Á½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€ô°4(€‘•‰ÑAÉ•Ù¥•ÝQ•áÐèì4(€€€™±•àè€Ä°4(€€€µ¥¹]¥‘Ñ è€À°4(€€€…Àè€Ì°4(€ô°4(€½Õ¹Ñ‘½Ý¹…Éèì4(€€€‰…­É½Õ¹‘½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°4(€€€‰½É‘•É]¥‘Ñ è€À°4(€€€½Ù•É™±½Üè€‰Ù¥Í¥‰±”ˆ°4(€€€é%¹‘•àè€ÄÀ°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ì‰½áM¡…‘½Üè€‰¹½¹”ˆô…Ì…¹ä¤€èíô¤°4(€ô°4(€½Õ¹Ñ‘½Ý¹½¹Ñ•¹Ðèì4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€…Àè€ÈÐ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°4(€€€Ý¥‘Ñ è€ˆÄÀÀ”ˆ°4(€ô°4(€½Õ¹Ñ‘½Ý¹½¹Ñ•¹Ñ½µÁ…Ðèì4(€€€…Àè€ÄÈ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°4(€ô°4(€½Õ¹Ñ‘½Ý¹=‰©•Ðèì4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹™¥•±°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌè€Èà°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€¡•¥¡Ðè€ÄÌÈ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°4(€€€½Ù•É™±½Üè€‰¡¥‘‘•¸ˆ°4(€€€Á½Í¥Ñ¥½¸è€‰É•±…Ñ¥Ù”ˆ°4(€€€Ý¥‘Ñ è€ÄÌÈ°4(€ô°4(€½Õ¹Ñ‘½Ý¹=‰©•Ñ½µÁ…Ðèì4(€€€‰½É‘•ÉI…‘¥ÕÌè€ÈÈ°4(€€€™±•áM¡É¥¹¬è€À°4(€€€¡•¥¡Ðè€äØ°4(€€€Ý¥‘Ñ è€äØ°4(€ô°4(€½Õ¹Ñ‘½Ý¹=‰©•ÑáÁ¥É•èì4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹Ý…É¹¥¹œ°4(€ô°4(€½Õ¹Ñ‘½Ý¹=‰©•Ñ¥±°èì4(€€€‰½ÑÑ½´è€À°4(€€€±•™Ðè€À°4(€€€½Ù•É™±½Üè€‰¡¥‘‘•¸ˆ°4(€€€Á½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°4(€€€É¥¡Ðè€À°4(€ô°4(€½Õ¹Ñ‘½Ý¹=‰©•Ñ¥±±áÁ¥É•èì4(€€€½Á…¥Ñäè€À°4(€ô°4(€½Õ¹Ñ‘½Ý¹¥±±	½‘äèì4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹Ð°4(€€€‰½ÑÑ½´è€À°4(€€€±•™Ðè€À°4(€€€½Á…¥Ñäè€À¸ÌÈ°4(€€€Á½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°4(€€€É¥¡Ðè€À°4(€€€Ñ½Àè€ÌÐ°4(€ô°4(€½Õ¹Ñ‘½Ý¹]…Ù•MÕÉ™…”èì4(€€€¡•¥¡Ðè€ÌÐ°4(€€€±•™Ðè€À°4(€€€½Ù•É™±½Üè€‰¡¥‘‘•¸ˆ°4(€€€Á½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°4(€€€É¥¡Ðè€À°4(€€€Ñ½Àè€À°4(€ô°4(€½Õ¹Ñ‘½Ý¹]…Ù•QÉ…¬èì4(€€€¡•¥¡Ðè€ÌÐ°4(€€€±•™Ðè€´ØØ°4(€€€Á½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°4(€€€Ñ½Àè€À°4(€€€Ý¥‘Ñ è€ÈØÐ°4(€ô°4(€½Õ¹Ñ‘½Ý¹=‰©•Ñ1…‰•°èì4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€é%¹‘•àè€Ä°4(€ô°4(€½Õ¹Ñ‘½Ý¹9Õµ‰•Èèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÐØ°4(€€€™½¹Ñ]•¥¡Ðè€ˆäÀÀˆ°4(€€€±¥¹•!•¥¡Ðè€Ðà°4(€ô°4(€½Õ¹Ñ‘½Ý¹9Õµ‰•É½µÁ…Ðèì4(€€€™½¹ÑM¥é”è€ÌÐ°4(€€€±¥¹•!•¥¡Ðè€ÌØ°4(€ô°4(€½Õ¹Ñ‘½Ý¹U¹¥Ðèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹Ð°4(€€€™½¹ÑM¥é”è€ÄÈ°4(€€€±¥¹•!•¥¡Ðè€ÄÜ°4(€€€™½¹Ñ]•¥¡Ðè€ˆäÀÀˆ°4(€€€±•ÑÑ•ÉMÁ…¥¹œè€Ä¸È°4(€ô°4(€½Õ¹Ñ‘½Ý¹U¹¥Ñ½µÁ…Ðèì4(€€€™½¹ÑM¥é”è€ÄÀ°4(€€€±¥¹•!•¥¡Ðè€ÄÐ°4(€ô°4(€½Õ¹Ñ‘½Ý¹UÉ•¹ÑQ•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹Ý…É¹¥¹œ°4(€ô°4(€½Õ¹Ñ‘½Ý¹•Ñ…¥±Ìèì4(€€€™±•àè€Ä°4(€€€™±•áM¡É¥¹¬è€Ä°4(€€€…Àè€Ð°4(€€€µ¥¹]¥‘Ñ è€À°4(€ô°4(€½Õ¹Ñ‘½Ý¹å•‰É½Üèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€™½¹ÑM¥é”è€ÄÈ°4(€€€±¥¹•!•¥¡Ðè€ÄÜ°4(€€€™½¹Ñ]•¥¡Ðè€ˆäÀÀˆ°4(€€€±•ÑÑ•ÉMÁ…¥¹œè€Ä¸Ä°4(€ô°4(€½Õ¹Ñ‘½Ý¹Q¥Ñ±”èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÈÀ°4(€€€±¥¹•!•¥¡Ðè€ÈØ°4(€€€™½¹Ñ]•¥¡Ðè€ˆàÀÀˆ°4(€ô°4(€½Õ¹Ñ‘½Ý¹…Ñ”èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹±…‰•°°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Ôèì4(€€€…±¥¹M•±˜è€‰•¹Ñ•Èˆ°4(€€€™±•áM¡É¥¹¬è€À°4(€€€Á½Í¥Ñ¥½¸è€‰É•±…Ñ¥Ù”ˆ°4(€€€é%¹‘•àè€ÈÀ°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Õ	ÕÑÑ½¸èì4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹ÑM½™Ð°4(€€€‰½É‘•ÉI…‘¥ÕÌè€ÈÀ°4(€€€¡•¥¡Ðè€ÐÀ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°4(€€€Ý¥‘Ñ è€ÐÀ°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Õ	ÕÑÑ½¹=Á•¸èì4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹Ð°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Õ½ÑÌèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹ÑM½™ÑQ•áÐ°4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€™½¹Ñ]•¥¡Ðè€ˆäÀÀˆ°4(€€€±•ÑÑ•ÉMÁ…¥¹œè€´Ä°4(€€€±¥¹•!•¥¡Ðè€ÈÀ°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Õ½ÑÍ=Á•¸èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹ÑQ•áÐ°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹ÕA½Á½Ù•Èèì4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…É°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌè€ÄÐ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€µ¥¹]¥‘Ñ è€ÄÄÈ°4(€€€½Ù•É™±½Üè€‰¡¥‘‘•¸ˆ°4(€€€Á½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°4(€€€É¥¡Ðè€À°4(€€€Ñ½Àè€ÐØ°4(€€€é%¹‘•àè€ÌÀ°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€üÑ¡•µ”¹Í¡…‘½Ü€èíô¤°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Õ%Ñ•´èì4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄØ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Õ%Ñ•µQ•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÄÐ°4(€€€™½¹Ñ]•¥¡Ðè€ˆàÀÀˆ°4(€€€±¥¹•!•¥¡Ðè€Äà°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹Õ¥Ù¥‘•Èèì4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€¡•¥¡Ðè€Ä°4(€ô°4(€½Õ¹Ñ‘½Ý¹5•¹ÕI•µ½Ù•Q•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹Ý…É¹¥¹œ°4(€ô°4(€½Õ¹Ñ‘½Ý¹µÁÑäèì4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€ÄÐ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°4(€ô°4(€½Õ¹Ñ‘½Ý¹½É´èì4(€€€…Àè€ÄÐ°4(€€€µ…É¥¹	½ÑÑ½´è€ÄÔ°4(€ô°4(€½Õ¹Ñ‘½Ý¹¥•±èì4(€€€…Àè€à°4(€ô°4(€™½Éµ1…‰•°èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÄÐ°4(€€€±¥¹•!•¥¡Ðè€ÈÀ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€ô°4(€™½Éµ%¹ÁÕÐèì4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹™¥•±°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹µ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÐ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ì½ÕÑ±¥¹•]¥‘Ñ è€À°½ÕÑ±¥¹•½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆô…Ì…¹ä¤€èíô¤°4(€ô°4(€ÁÉ•‘¥Ñ¥½¹5•Ñ…I½Üèì4(€€€…±¥¹%Ñ•µÌè€‰™±•àµÍÑ…ÉÐˆ°4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€…Àè€ÄÀ°4(€€€™±•àè€Ä°4(€€€µ¥¹]¥‘Ñ è€À°4(€ô°4(€ÁÉ•‘¥Ñ¥½¹5•Ñ„èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€™±•áM¡É¥¹¬è€Ä°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹‰½‘ä°4(€ô°4(€ÁÉ•‘¥Ñ¥½¹Y…±Õ”èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹Ð°4(€€€™½¹ÑM¥é”è€ÌÐ°4(€€€±¥¹•!•¥¡Ðè€ÐÀ°4(€€€™½¹Ñ]•¥¡Ðè€ˆàÀÀˆ°4(€ô°4(€±¥ÍÐèì4(€€€…ÀèÑ¡•µ”¹ÍÁ…¥¹œ¹µ°4(€ô°4(€ÅÕ¥­‘‘…±±‰…¬èì4(€€€…Àè€ÄÈ°4(€€€…±¥¹%Ñ•µÌè€‰™±•àµÍÑ…ÉÐˆ°4(€ô°4(€µ½‘…±%¹™¼èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹‰½‘ä°4(€ô°4(€É½Üèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€à°4(€€€‰½É‘•É	½ÑÑ½µ]¥‘Ñ è€Ä°4(€€€‰½É‘•É	½ÑÑ½µ½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€ô°4(€É½Ý1…ÍÐèì4(€€€‰½É‘•É	½ÑÑ½µ]¥‘Ñ è€À°4(€ô°4(€Á•¹‘¥¹I½Üèì4(€€€‰…­É½Õ¹‘½±½Èè€‰É‰„ ÄäÐ°€ØÔ°€ÄÈ°€À¸ÄÀ¤ˆ°4(€€€‰½É‘•É1•™Ñ½±½ÈèÑ¡•µ”¹½±½ÉÌ¹Ý…É¹¥¹œ°4(€€€‰½É‘•É1•™Ñ]¥‘Ñ è€Ì°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹Í´°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÀ°4(€ô°4(€É½ÝQ¥Ñ±”èì4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€±¥¹•!•¥¡Ðè€ÈÈ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€ô°4(€É½Ý5•Ñ„èì4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹±…‰•°°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€ô°4(€…Ñ•½Éå9…µ”èì4(€€€™±•àè€Ä°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°4(€ô°4(€É½Ýµ½Õ¹Ðèì4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€±¥¹•!•¥¡Ðè€ÈÈ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€ô°4(€•ÉÉ½ÉQ•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹Ý…É¹¥¹œ°4(€€€™½¹ÑM¥é”è€ÄÐ°4(€€€±¥¹•!•¥¡Ðè€ÈÀ°4(€ô°4(€•µÁÑåMÑ…Ñ”èì4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€Ð°4(€ô°4(€•µÁÑåQ•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹‰½‘ä°4(€ô°4(€™…ˆèì4(€€€Á½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°4(€€€É¥¡Ðè€ÈÀ°4(€€€‰½ÑÑ½´è€ÈÐ°4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€…Àè€ÄÀ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹Ð°4(€€€‰½É‘•ÉI…‘¥ÕÌè€äää°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€Äà°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÐ°4(€€€€¸¸¹Ñ¡•µ”¹Í¡…‘½Ü°4(€ô°4(€™…‰½µÁ…Ðèì4(€€€±•™Ðè€ÄÈ°4(€€€É¥¡Ðè€ÄÈ°4(€€€‰½ÑÑ½´è€ÄÈ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€ô°4(€™…‰A±ÕÌèì4(€€€½±½Èè€ˆˆ°4(€€€™½¹ÑM¥é”è€ÈÈ°4(€€€™½¹Ñ]•¥¡Ðè€ˆàÀÀˆ°4(€€€±¥¹•!•¥¡Ðè€ÈÈ°4(€ô°4(€™…‰1…‰•°èì4(€€€½±½Èè€ˆˆ°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹½¹ÑÉ½°°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€ô°4(€™…‰1…‰•±½µÁ…Ðèì4(€€€™½¹ÑM¥é”è€ÄÐ°4(€ô°4)ô¤ì4

@@ -4,49 +4,14 @@
     <meta charset="utf-8" />
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <meta
-      name="description"
-      content="A private, offline-ready spending tracker for recording expenses, monitoring debts, reviewing reports, and optionally syncing between devices."
-    />
-    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
     <meta name="theme-color" content="#fffdf8" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Spending Tracker" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Spending Tracker" />
-    <meta property="og:title" content="Spending Tracker — Private, offline-ready expense tracking" />
-    <meta
-      property="og:description"
-      content="Record expenses, monitor debts, review spending reports, and optionally sync between devices."
-    />
-    <meta property="og:url" content="https://justinecabel.github.io/spending-tracker/" />
-    <meta property="og:image" content="https://justinecabel.github.io/spending-tracker/icon-512.png" />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Spending Tracker — Private, offline-ready expense tracking" />
-    <meta
-      name="twitter:description"
-      content="Record expenses, monitor debts, review spending reports, and optionally sync between devices."
-    />
-    <meta name="twitter:image" content="https://justinecabel.github.io/spending-tracker/icon-512.png" />
-    <link rel="canonical" href="https://justinecabel.github.io/spending-tracker/" />
-    <link id="spending-tracker-manifest" rel="manifest" href="./manifest.webmanifest?v=23" />
+    <link id="spending-tracker-manifest" rel="manifest" href="./manifest.webmanifest?v=21" />
     <link rel="icon" href="./icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
-    <title>Spending Tracker — Private, offline-ready expense tracking</title>
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "WebApplication",
-        "name": "Spending Tracker",
-        "url": "https://justinecabel.github.io/spending-tracker/",
-        "description": "A private, offline-ready spending tracker for recording expenses, monitoring debts, reviewing reports, and optionally syncing between devices.",
-        "applicationCategory": "FinanceApplication",
-        "operatingSystem": "Any",
-        "browserRequirements": "Requires a modern web browser"
-      }
-    </script>
+    <title>%WEB_TITLE%</title>
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /* These styles make the body full-height */
@@ -66,41 +31,12 @@
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
         overflow: hidden;
-        overscroll-behavior-y: none;
       }
       /* These styles make the root element full-height */
       #root {
         display: flex;
         height: 100%;
         flex: 1;
-      }
-
-      .search-fallback {
-        align-items: center;
-        background: #fffdf8;
-        color: #1f2328;
-        display: flex;
-        flex: 1;
-        font-family: system-ui, sans-serif;
-        justify-content: center;
-        padding: 32px;
-      }
-
-      .search-fallback__content {
-        max-width: 42rem;
-      }
-
-      .search-fallback h1 {
-        font-size: clamp(2rem, 6vw, 3.5rem);
-        line-height: 1.05;
-        margin: 0 0 16px;
-      }
-
-      .search-fallback p {
-        color: #64707a;
-        font-size: 1.1rem;
-        line-height: 1.65;
-        margin: 0;
       }
 
       @keyframes spending-countdown-wave-forward {
@@ -116,19 +52,11 @@
   </head>
 
   <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
     <noscript>
-      Spending Tracker requires JavaScript for secure local storage, offline access, and optional sync.
+      You need to enable JavaScript to run this app.
     </noscript>
-    <div id="root">
-      <main class="search-fallback">
-        <div class="search-fallback__content">
-          <h1>Private, offline-ready spending tracker</h1>
-          <p>
-            Record expenses manually, monitor debts, review spending reports, and optionally sync profiles between
-            devices. Spending Tracker keeps working with saved data when your connection drops.
-          </p>
-        </div>
-      </main>
-    </div>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
   </body>
 </html>

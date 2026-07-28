@@ -6,7 +6,6 @@ import { ScreenContainer } from "../../src/components/layout";
 import { TransferOutPanel } from "../../src/components/transfer-session";
 import { api } from "../../src/lib/api";
 import { collectClientDiagnostics, runNotificationDiagnostic } from "../../src/lib/client-diagnostics";
-import { usePwaInstallContext } from "../../src/hooks/use-pwa-install";
 import { nanoid } from "nanoid/non-secure";
 import { appearanceStore, getAppearanceProfileKey } from "../../src/state/appearance";
 import { summaryRangeStore, type SummaryRangeMode } from "../../src/state/summary-range";
@@ -45,7 +44,6 @@ export default function SettingsScreen() {
   const removeLinkedProfile = sessionStore((state) => state.removeLinkedProfile);
   const clearSession = sessionStore((state) => state.clearSession);
   const enqueue = offlineQueueStore((state) => state.enqueue);
-  const { canInstall, install, isInstalled, manualInstallHint } = usePwaInstallContext();
   const summaryMode = summaryRangeStore((state) => state.mode);
   const customFrom = summaryRangeStore((state) => state.customFrom);
   const customTo = summaryRangeStore((state) => state.customTo);
@@ -346,647 +344,4 @@ export default function SettingsScreen() {
               label="Save colors"
               tone="ghost"
               onPress={() => {
-                const nextAccent = normalizeCustomAccent(accentDraft);
-                const nextSecondaryAccent = normalizeCustomAccent(secondaryAccentDraft);
-                if (!nextAccent || !nextSecondaryAccent) {
-                  setAccentError("Enter two 6-digit hex colors, for example #7C3AED and #EDE9FE.");
-                  return;
-                }
-                setAppearanceAccent(appearanceProfileKey, nextAccent);
-                setAppearanceSecondaryAccent(appearanceProfileKey, nextSecondaryAccent);
-                setAccentDraft(nextAccent);
-                setSecondaryAccentDraft(nextSecondaryAccent);
-                setAccentError(null);
-              }}
-            />
-          </View>
-          <View style={styles.colorEditorRow}>
-            <Text style={styles.colorLabel}>Primary</Text>
-            <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(accentDraft) ?? theme.colors.accent }]}>
-              <TextInput
-                value={normalizeCustomAccent(accentDraft) ?? "#0F766E"}
-                onChangeText={(value) => {
-                  setAccentDraft(value.toUpperCase().slice(0, 7));
-                  setAccentError(null);
-                }}
-                style={styles.colorPicker}
-                {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Primary color" } as any) : {})}
-              />
-            </View>
-            <TextInput
-              value={accentDraft}
-              onChangeText={(value) => {
-                setAccentDraft(value.toUpperCase().slice(0, 7));
-                setAccentError(null);
-              }}
-              placeholder="#0F766E"
-              autoCapitalize="characters"
-              autoCorrect={false}
-              maxLength={7}
-              style={styles.accentInput}
-            />
-          </View>
-          <View style={styles.colorEditorRow}>
-            <Text style={styles.colorLabel}>Secondary</Text>
-            <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(secondaryAccentDraft) ?? theme.colors.accentSoft }]}>
-              <TextInput
-                value={normalizeCustomAccent(secondaryAccentDraft) ?? "#D9F3EF"}
-                onChangeText={(value) => {
-                  setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
-                  setAccentError(null);
-                }}
-                style={styles.colorPicker}
-                {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Secondary color" } as any) : {})}
-              />
-            </View>
-            <TextInput
-              value={secondaryAccentDraft}
-              onChangeText={(value) => {
-                setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
-                setAccentError(null);
-              }}
-              placeholder="#D9F3EF"
-              autoCapitalize="characters"
-              autoCorrect={false}
-              maxLength={7}
-              style={styles.accentInput}
-            />
-          </View>
-          {customAccent || customSecondaryAccent ? (
-            <PillButton
-              label="Use theme default"
-              tone="ghost"
-              onPress={() => {
-                setAppearanceAccent(appearanceProfileKey, null);
-                setAppearanceSecondaryAccent(appearanceProfileKey, null);
-                setAccentDraft("");
-                setSecondaryAccentDraft("");
-                setAccentError(null);
-              }}
-            />
-          ) : null}
-          {accentError ? <Text style={styles.error}>{accentError}</Text> : null}
-        </View>
-      </Card>
-
-      {Platform.OS === "web" ? (
-        <Card>
-          <SectionTitle
-            title="Install app"
-            subtitle={
-              isInstalled
-                ? "Spending Tracker is installed on this device."
-                : "Launch from your home screen or app menu and keep the tracker close at hand."
-            }
-          />
-          {canInstall ? (
-            <PillButton label="Install Spending Tracker" onPress={() => void install()} />
-          ) : !isInstalled && manualInstallHint ? (
-            <Text style={styles.helperText}>{manualInstallHint}</Text>
-          ) : null}
-        </Card>
-      ) : null}
-
-      {canImportLocalData ? (
-        <Card>
-          <SectionTitle
-            title="Import local Device-ID data"
-            subtitle="Copy the local Device-ID profile records into this Sync Code account without deleting the local profile."
-          />
-          <PillButton label="Copy local data" tone="ghost" onPress={() => setIsImportModalOpen(true)} />
-          {importDeviceDataMutation.error ? <Text style={styles.error}>{importDeviceDataMutation.error.message}</Text> : null}
-        </Card>
-      ) : null}
-
-      {canForgetLinkedProfile ? (
-        <Card>
-          <SectionTitle
-            title="Forget this Sync Code profile"
-            subtitle="Remove this remembered Sync Code profile from this device only. The remote account stays unchanged and this device will switch back to Device-ID."
-          />
-          <PillButton
-            label="Forget profile"
-            tone="ghost"
-            onPress={() => {
-              if (!activeLinkedProfileUserId) {
-                return;
-              }
-              setPendingForgetProfileId(activeLinkedProfileUserId);
-            }}
-          />
-        </Card>
-      ) : null}
-
-      {canOwnDeviceData ? (
-        <Card>
-          <SectionTitle
-            title="Own this device"
-            subtitle="Replace the local Device-ID records on this device with the current Sync Code account data."
-          />
-          <PillButton
-            label="Own it"
-            tone="ghost"
-            onPress={() => {
-              ownDeviceDataMutation.reset();
-              setIsOwnItModalOpen(true);
-            }}
-          />
-          {ownDeviceDataMutation.error ? <Text style={styles.error}>{ownDeviceDataMutation.error.message}</Text> : null}
-        </Card>
-      ) : null}
-
-      <Card>
-        <TransferOutPanel />
-      </Card>
-
-      <Card>
-        <SectionTitle
-          title="Developer options"
-          subtitle="Run troubleshooting tools and send technical reports for remote debugging."
-        />
-        <PillButton
-          label="Open diagnostics"
-          tone="ghost"
-          onPress={() => {
-            diagnosticMutation.reset();
-            bugReportMutation.reset();
-            setBugReportText("");
-            setIsDeveloperModalOpen(true);
-          }}
-        />
-      </Card>
-
-      <FormModal
-        visible={isDeveloperModalOpen}
-        title="Developer tools"
-        subtitle="Choose a diagnostic to run on this device."
-        size="wide"
-        onClose={() => setIsDeveloperModalOpen(false)}
-      >
-        <View style={styles.diagnosticList}>
-          <View style={styles.diagnosticItem}>
-            <View style={styles.labelWithHelp}>
-              <Text style={styles.diagnosticItemTitle}>Notification diagnostics</Text>
-              <HelpTooltip
-                label="About notification diagnostics"
-                text="Tests notification delivery and reports PWA mode, browser and OS hints, screen, service-worker state, storage, connection, locale, and device capabilities. It does not read passwords, files, messages, contacts, or precise location. The server records the network address and standard request headers it normally receives."
-              />
-            </View>
-            <PillButton
-              label={diagnosticMutation.isPending ? "Testing and sending..." : "Run notification test"}
-              onPress={() => {
-                if (!diagnosticMutation.isPending) diagnosticMutation.mutate();
-              }}
-            />
-            {diagnosticMutation.data ? (
-              <View style={styles.diagnosticResult}>
-                <Text style={styles.diagnosticSuccess}>Diagnostic report sent</Text>
-                <Text style={styles.value}>Report ID: {diagnosticMutation.data.report.reportId}</Text>
-                <Text style={styles.helperText}>
-                  Notification result: {diagnosticMutation.data.notificationTest.error
-                    ?? `sent using ${diagnosticMutation.data.notificationTest.deliveryMethod}.`}
-                </Text>
-              </View>
-            ) : null}
-            {diagnosticMutation.error ? (
-              <Text style={styles.error}>{diagnosticMutation.error.message}</Text>
-            ) : null}
-          </View>
-          <View style={styles.diagnosticItem}>
-            <View style={styles.labelWithHelp}>
-              <Text style={styles.diagnosticItemTitle}>Report a bug</Text>
-              <HelpTooltip
-                label="About bug reports"
-                text="Describe what happened. The report attaches PWA, browser, OS, screen, service-worker, storage, connection, locale, and device capability details."
-              />
-            </View>
-            <TextInput
-              value={bugReportText}
-              onChangeText={(value) => {
-                setBugReportText(value.slice(0, 4_000));
-                if (bugReportMutation.error) bugReportMutation.reset();
-              }}
-              placeholder="What happened, and what did you expect?"
-              placeholderTextColor={theme.colors.muted}
-              multiline
-              numberOfLines={5}
-              style={styles.bugReportInput}
-            />
-            <Text style={styles.helperText}>{bugReportText.length}/4000 characters</Text>
-            <PillButton
-              label={bugReportMutation.isPending ? "Sending report..." : "Send bug report"}
-              onPress={() => {
-                if (!bugReportMutation.isPending) bugReportMutation.mutate();
-              }}
-            />
-            {bugReportMutation.data ? (
-              <View style={styles.diagnosticResult}>
-                <Text style={styles.diagnosticSuccess}>Bug report sent</Text>
-                <Text style={styles.value}>Report ID: {bugReportMutation.data.reportId}</Text>
-              </View>
-            ) : null}
-            {bugReportMutation.error ? <Text style={styles.error}>{bugReportMutation.error.message}</Text> : null}
-          </View>
-        </View>
-      </FormModal>
-
-      <Modal transparent visible={isImportModalOpen} animationType="fade" onRequestClose={() => setIsImportModalOpen(false)}>
-        <View style={styles.modalScrim}>
-          <View style={[styles.modalCard, { width: modalCardWidth }]}>
-            <Text style={styles.modalTitle}>Copy local data into Sync Code account</Text>
-            <Text style={styles.modalBody}>
-              This copies categories and transactions from the local Device-ID profile into the linked Sync Code account. The local profile stays on this device.
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setIsImportModalOpen(false)}>
-                <Text style={styles.secondaryButtonText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.primaryButton}
-                onPress={() => {
-                  if (!deviceProfile?.user) {
-                    return;
-                  }
-                  importDeviceDataMutation.mutate({
-                    sourceUserId: deviceProfile.user.id,
-                  });
-                }}
-              >
-                <Text style={styles.primaryButtonText}>{importDeviceDataMutation.isPending ? "Copying..." : "Copy data"}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal transparent visible={isOwnItModalOpen} animationType="fade" onRequestClose={() => setIsOwnItModalOpen(false)}>
-        <View style={styles.modalScrim}>
-          <View style={[styles.modalCard, { width: modalCardWidth }]}>
-            <Text style={styles.modalTitle}>Own this device with Sync Code data</Text>
-            <Text style={styles.modalBody}>
-              This overwrites the local Device-ID data on this device with the current Sync Code account data. The linked Sync Code account stays connected, but the old local-only records on this device will be replaced.
-            </Text>
-            <View style={styles.modalStackActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setIsOwnItModalOpen(false)}>
-                <Text style={styles.secondaryButtonText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.primaryButton}
-                onPress={() => {
-                  ownDeviceDataMutation.mutate(undefined, {
-                    onSuccess: ({ deviceUser }) => {
-                      const nextDeviceProfile = deviceProfile;
-                      if (!nextDeviceProfile) {
-                        return;
-                      }
-                      sessionStore.getState().setSession(
-                        {
-                          accessToken: nextDeviceProfile.accessToken,
-                          refreshToken: nextDeviceProfile.refreshToken,
-                          user: deviceUser,
-                        },
-                        "device",
-                      );
-                    },
-                  });
-                }}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {ownDeviceDataMutation.isPending ? "Applying..." : "Own it and use Device-ID"}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={styles.primaryButton}
-                onPress={() => {
-                  ownDeviceDataMutation.mutate();
-                }}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {ownDeviceDataMutation.isPending ? "Applying..." : "Own it and stay on Sync Code"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        transparent
-        visible={Boolean(pendingForgetProfileId)}
-        animationType="fade"
-        onRequestClose={() => setPendingForgetProfileId(null)}
-      >
-        <View style={styles.modalScrim}>
-          <View style={[styles.modalCard, { width: modalCardWidth }]}>
-            <Text style={styles.modalTitle}>Forget Sync profile</Text>
-            <Text style={styles.modalBody}>
-              This removes the remembered Sync Code profile from this device only. The remote account and its data stay unchanged. Your local Device-ID profile stays available here, and this device will switch back to Device-ID after forgetting this sync profile.
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setPendingForgetProfileId(null)}>
-                <Text style={styles.secondaryButtonText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.dangerButton}
-                onPress={() => {
-                  if (!pendingForgetProfileId) {
-                    return;
-                  }
-                  removeLinkedProfile(pendingForgetProfileId);
-                  setPendingForgetProfileId(null);
-                }}
-              >
-                <Text style={styles.dangerButtonText}>Forget</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </ScreenContainer>
-  );
-}
-
-const styles = StyleSheet.create({
-  compactSettingsCard: {
-    gap: 12,
-    padding: 14,
-  },
-  profileFacts: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  profileFact: {
-    flex: 1,
-    minWidth: 132,
-  },
-  list: {
-    gap: 10,
-  },
-  label: {
-    color: theme.colors.muted,
-    ...theme.typography.label,
-  },
-  labelWithHelp: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  value: {
-    color: theme.colors.ink,
-    ...theme.typography.subheading,
-    fontWeight: "700",
-  },
-  switchBlock: {
-    gap: 8,
-  },
-  switchRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  switchList: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    alignItems: "center",
-  },
-  linkedProfileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  rangeModeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  rangeEditor: {
-    gap: 10,
-  },
-  accentEditor: {
-    gap: 6,
-  },
-  accentHeaderRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  colorEditorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  colorLabel: {
-    color: theme.colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "700",
-    width: 76,
-  },
-  accentPreview: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  colorPreview: {
-    width: 42,
-    height: 36,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.sm,
-    overflow: "hidden",
-  },
-  colorPicker: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    padding: 0,
-    opacity: 0,
-    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
-  },
-  accentInput: {
-    width: 120,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.field,
-    color: theme.colors.ink,
-    fontSize: 16,
-    fontWeight: "700",
-    ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent" } as any) : {}),
-  },
-  rangeField: {
-    gap: 6,
-  },
-  currencyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  rangeInput: {
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.field,
-    color: theme.colors.ink,
-    fontSize: 16,
-    ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent" } as any) : {}),
-  },
-  currencyInput: {
-    width: 88,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.field,
-    color: theme.colors.ink,
-    fontSize: 18,
-    fontWeight: "700",
-    ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent" } as any) : {}),
-  },
-  error: {
-    marginTop: 8,
-    color: theme.colors.warning,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  helperText: {
-    color: theme.colors.muted,
-    ...theme.typography.label,
-  },
-  diagnosticList: {
-    gap: 14,
-  },
-  diagnosticItem: {
-    gap: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.field,
-    padding: 16,
-  },
-  diagnosticItemTitle: {
-    color: theme.colors.ink,
-    ...theme.typography.subheading,
-    fontWeight: "800",
-  },
-  bugReportInput: {
-    minHeight: 120,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: theme.colors.card,
-    color: theme.colors.ink,
-    fontSize: 16,
-    lineHeight: 21,
-    textAlignVertical: "top",
-    ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent", resize: "vertical" } as any) : {}),
-  },
-  diagnosticResult: {
-    gap: 6,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.field,
-    padding: 14,
-  },
-  diagnosticSuccess: {
-    color: theme.colors.success,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "800",
-  },
-  signOutButton: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    backgroundColor: "#FEE2E2",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  signOutButtonText: {
-    color: "#B91C1C",
-    ...theme.typography.control,
-    fontWeight: "700",
-  },
-  modalScrim: {
-    flex: 1,
-    backgroundColor: "rgba(27, 29, 31, 0.35)",
-    justifyContent: "center",
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.lg,
-    padding: 20,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    maxWidth: 560,
-    alignSelf: "center",
-    ...theme.shadow,
-  },
-  modalTitle: {
-    color: theme.colors.ink,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: "800",
-  },
-  modalBody: {
-    color: theme.colors.muted,
-    ...theme.typography.body,
-  },
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 10,
-  },
-  modalStackActions: {
-    gap: 10,
-  },
-  secondaryButton: {
-    borderRadius: 999,
-    backgroundColor: theme.colors.accentSoft,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  secondaryButtonText: {
-    color: theme.colors.accentSoftText,
-    fontWeight: "700",
-  },
-  primaryButton: {
-    borderRadius: 999,
-    backgroundColor: theme.colors.accent,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
-  primaryButtonText: {
-    color: theme.colors.accentText,
-    fontWeight: "700",
-  },
-  dangerButton: {
-    borderRadius: 999,
-    backgroundColor: "#B91C1C",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
-  dangerButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-});
+                const nextAccent = normalizeCuÛ^ö¶‰žËkºwµç@€€€€€€€€€€€±…‰•°ô‰‰½ÕÐ¹½Ñ¥™¥…Ñ¥½¸‘¥…¹½ÍÑ¥Ìˆ4(€€€€€€€€€€€€€€€Ñ•áÐô‰Q•ÍÑÌ¹½Ñ¥™¥…Ñ¥½¸‘•±¥Ù•Éä…¹É•Á½ÉÑÌA]µ½‘”°‰É½ÝÍ•È…¹=L¡¥¹ÑÌ°ÍÉ••¸°Í•ÉÙ¥”µÝ½É­•ÈÍÑ…Ñ”°ÍÑ½É…”°½¹¹•Ñ¥½¸°±½…±”°…¹‘•Ù¥”…Á…‰¥±¥Ñ¥•Ì¸%Ð‘½•Ì¹½ÐÉ•…Á…ÍÍÝ½É‘Ì°™¥±•Ì°µ•ÍÍ…•Ì°½¹Ñ…ÑÌ°½ÈÁÉ•¥Í”±½…Ñ¥½¸¸Q¡”Í•ÉÙ•ÈÉ•½É‘ÌÑ¡”¹•ÑÝ½É¬…‘‘É•ÍÌ…¹ÍÑ…¹‘…ÉÉ•ÅÕ•ÍÐ¡•…‘•ÉÌ¥Ð¹½Éµ…±±äÉ••¥Ù•Ì¸ˆ4(€€€€€€€€€€€€€€¼ø4(€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€€€ñA¥±±	ÕÑÑ½¸4(€€€€€€€€€€€€€±…‰•°õí‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹¥ÍA•¹‘¥¹œ€ü€‰Q•ÍÑ¥¹œ…¹Í•¹‘¥¹œ¸¸¸ˆ€è€‰IÕ¸¹½Ñ¥™¥…Ñ¥½¸Ñ•ÍÐ‰ô4(€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€¥˜€ …‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹¥ÍA•¹‘¥¹œ¤‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹µÕÑ…Ñ” ¤ì4(€€€€€€€€€€€€€õô4(€€€€€€€€€€€€¼ø4(€€€€€€€€€€€í‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹‘…Ñ„€ü€ 4(€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹‘¥…¹½ÍÑ¥I•ÍÕ±Ñôø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹‘¥…¹½ÍÑ¥MÕ•ÍÍôù¥…¹½ÍÑ¥ŒÉ•Á½ÉÐÍ•¹Ðð½Q•áÐø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Ù…±Õ•ôùI•Á½ÉÐ%èí‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹‘…Ñ„¹É•Á½ÉÐ¹É•Á½ÉÑ%‘ôð½Q•áÐø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹¡•±Á•ÉQ•áÑôø4(€€€€€€€€€€€€€€€€€9½Ñ¥™¥…Ñ¥½¸É•ÍÕ±Ðèí‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹‘…Ñ„¹¹½Ñ¥™¥…Ñ¥½¹Q•ÍÐ¹•ÉÉ½È4(€€€€€€€€€€€€€€€€€€€€üüÍ•¹ÐÕÍ¥¹œ€‘í‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹‘…Ñ„¹¹½Ñ¥™¥…Ñ¥½¹Q•ÍÐ¹‘•±¥Ù•Éå5•Ñ¡½‘ô¹ô4(€€€€€€€€€€€€€€€€ð½Q•áÐø4(€€€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€€€€í‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹•ÉÉ½È€ü€ 4(€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹•ÉÉ½Éôùí‘¥…¹½ÍÑ¥5ÕÑ…Ñ¥½¸¹•ÉÉ½È¹µ•ÍÍ…•ôð½Q•áÐø4(€€€€€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹‘¥…¹½ÍÑ¥%Ñ•µôø4(€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹±…‰•±]¥Ñ¡!•±Áôø4(€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹‘¥…¹½ÍÑ¥%Ñ•µQ¥Ñ±•ôùI•Á½ÉÐ„‰Õœð½Q•áÐø4(€€€€€€€€€€€€€€ñ!•±ÁQ½½±Ñ¥À4(€€€€€€€€€€€€€€€±…‰•°ô‰‰½ÕÐ‰ÕœÉ•Á½ÉÑÌˆ4(€€€€€€€€€€€€€€€Ñ•áÐô‰•ÍÉ¥‰”Ý¡…Ð¡…ÁÁ•¹•¸Q¡”É•Á½ÉÐ…ÑÑ…¡•ÌA]°‰É½ÝÍ•È°=L°ÍÉ••¸°Í•ÉÙ¥”µÝ½É­•È°ÍÑ½É…”°½¹¹•Ñ¥½¸°±½…±”°…¹‘•Ù¥”…Á…‰¥±¥Ñä‘•Ñ…¥±Ì¸ˆ4(€€€€€€€€€€€€€€¼ø4(€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€€€ñQ•áÑ%¹ÁÕÐ4(€€€€€€€€€€€€€Ù…±Õ”õí‰ÕI•Á½ÉÑQ•áÑô4(€€€€€€€€€€€€€½¹¡…¹•Q•áÐõì¡Ù…±Õ”¤€ôøì4(€€€€€€€€€€€€€€€Í•Ñ	ÕI•Á½ÉÑQ•áÐ¡Ù…±Õ”¹Í±¥” À°€Ñ|ÀÀÀ¤¤ì4(€€€€€€€€€€€€€€€¥˜€¡‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹•ÉÉ½È¤‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹É•Í•Ð ¤ì4(€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€Á±…•¡½±‘•Èô‰]¡…Ð¡…ÁÁ•¹•°…¹Ý¡…Ð‘¥å½Ô•áÁ•Ðüˆ4(€€€€€€€€€€€€€Á±…•¡½±‘•ÉQ•áÑ½±½ÈõíÑ¡•µ”¹½±½ÉÌ¹µÕÑ•‘ô4(€€€€€€€€€€€€€µÕ±Ñ¥±¥¹”4(€€€€€€€€€€€€€¹Õµ‰•É=™1¥¹•ÌõìÕô4(€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹‰ÕI•Á½ÉÑ%¹ÁÕÑô4(€€€€€€€€€€€€¼ø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹¡•±Á•ÉQ•áÑôùí‰ÕI•Á½ÉÑQ•áÐ¹±•¹Ñ¡ô¼ÐÀÀÀ¡…É…Ñ•ÉÌð½Q•áÐø4(€€€€€€€€€€€€ñA¥±±	ÕÑÑ½¸4(€€€€€€€€€€€€€±…‰•°õí‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹¥ÍA•¹‘¥¹œ€ü€‰M•¹‘¥¹œÉ•Á½ÉÐ¸¸¸ˆ€è€‰M•¹‰ÕœÉ•Á½ÉÐ‰ô4(€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€¥˜€ …‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹¥ÍA•¹‘¥¹œ¤‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹µÕÑ…Ñ” ¤ì4(€€€€€€€€€€€€€õô4(€€€€€€€€€€€€¼ø4(€€€€€€€€€€€í‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹‘…Ñ„€ü€ 4(€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹‘¥…¹½ÍÑ¥I•ÍÕ±Ñôø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹‘¥…¹½ÍÑ¥MÕ•ÍÍôù	ÕœÉ•Á½ÉÐÍ•¹Ðð½Q•áÐø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Ù…±Õ•ôùI•Á½ÉÐ%èí‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹‘…Ñ„¹É•Á½ÉÑ%‘ôð½Q•áÐø4(€€€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€€€€í‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹•ÉÉ½È€ü€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹•ÉÉ½Éôùí‰ÕI•Á½ÉÑ5ÕÑ…Ñ¥½¸¹•ÉÉ½È¹µ•ÍÍ…•ôð½Q•áÐø€è¹Õ±±ô4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€ð½Y¥•Üø4(€€€€€€ð½½Éµ5½‘…°ø4(4(€€€€€€ñ5½‘…°ÑÉ…¹ÍÁ…É•¹ÐÙ¥Í¥‰±”õí¥Í%µÁ½ÉÑ5½‘…±=Á•¹ô…¹¥µ…Ñ¥½¹QåÁ”ô‰™…‘”ˆ½¹I•ÅÕ•ÍÑ±½Í”õì ¤€ôøÍ•Ñ%Í%µÁ½ÉÑ5½‘…±=Á•¸¡™…±Í”¥ôø4(€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹µ½‘…±MÉ¥µôø4(€€€€€€€€€€ñY¥•ÜÍÑå±”õímÍÑå±•Ì¹µ½‘…±…É°ìÝ¥‘Ñ èµ½‘…±…É‘]¥‘Ñ õuôø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹µ½‘…±Q¥Ñ±•ôù½Áä±½…°‘…Ñ„¥¹Ñ¼Må¹Œ½‘”…½Õ¹Ðð½Q•áÐø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹µ½‘…±	½‘åôø4(€€€€€€€€€€€€€Q¡¥Ì½Á¥•Ì…Ñ•½É¥•Ì…¹ÑÉ…¹Í…Ñ¥½¹Ì™É½´Ñ¡”±½…°•Ù¥”µ%ÁÉ½™¥±”¥¹Ñ¼Ñ¡”±¥¹­•Må¹Œ½‘”…½Õ¹Ð¸Q¡”±½…°ÁÉ½™¥±”ÍÑ…åÌ½¸Ñ¡¥Ì‘•Ù¥”¸4(€€€€€€€€€€€€ð½Q•áÐø4(€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹µ½‘…±Ñ¥½¹Íôø4(€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”ÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…Éå	ÕÑÑ½¹ô½¹AÉ•ÍÌõì ¤€ôøÍ•Ñ%Í%µÁ½ÉÑ5½‘…±=Á•¸¡™…±Í”¥ôø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…Éå	ÕÑÑ½¹Q•áÑôù…¹•°ð½Q•áÐø4(€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”4(€€€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹ÁÉ¥µ…Éå	ÕÑÑ½¹ô4(€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€€€¥˜€ …‘•Ù¥•AÉ½™¥±”ü¹ÕÍ•È¤ì4(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì4(€€€€€€€€€€€€€€€€€ô4(€€€€€€€€€€€€€€€€€¥µÁ½ÉÑ•Ù¥•…Ñ…5ÕÑ…Ñ¥½¸¹µÕÑ…Ñ”¡ì4(€€€€€€€€€€€€€€€€€€€Í½ÕÉ•UÍ•É%è‘•Ù¥•AÉ½™¥±”¹ÕÍ•È¹¥°4(€€€€€€€€€€€€€€€€€ô¤ì4(€€€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹ÁÉ¥µ…Éå	ÕÑÑ½¹Q•áÑôùí¥µÁ½ÉÑ•Ù¥•…Ñ…5ÕÑ…Ñ¥½¸¹¥ÍA•¹‘¥¹œ€ü€‰½Áå¥¹œ¸¸¸ˆ€è€‰½Áä‘…Ñ„‰ôð½Q•áÐø4(€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€ð½Y¥•Üø4(€€€€€€ð½5½‘…°ø4(4(€€€€€€ñ5½‘…°ÑÉ…¹ÍÁ…É•¹ÐÙ¥Í¥‰±”õí¥Í=Ý¹%Ñ5½‘…±=Á•¹ô…¹¥µ…Ñ¥½¹QåÁ”ô‰™…‘”ˆ½¹I•ÅÕ•ÍÑ±½Í”õì ¤€ôøÍ•Ñ%Í=Ý¹%Ñ5½‘…±=Á•¸¡™…±Í”¥ôø4(€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹µ½‘…±MÉ¥µôø4(€€€€€€€€€€ñY¥•ÜÍÑå±”õímÍÑå±•Ì¹µ½‘…±…É°ìÝ¥‘Ñ èµ½‘…±…É‘]¥‘Ñ õuôø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹µ½‘…±Q¥Ñ±•ôù=Ý¸Ñ¡¥Ì‘•Ù¥”Ý¥Ñ Må¹Œ½‘”‘…Ñ„ð½Q•áÐø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹µ½‘…±	½‘åôø4(€€€€€€€€€€€€€Q¡¥Ì½Ù•ÉÝÉ¥Ñ•ÌÑ¡”±½…°•Ù¥”µ%‘…Ñ„½¸Ñ¡¥Ì‘•Ù¥”Ý¥Ñ Ñ¡”ÕÉÉ•¹ÐMå¹Œ½‘”…½Õ¹Ð‘…Ñ„¸Q¡”±¥¹­•Må¹Œ½‘”…½Õ¹ÐÍÑ…åÌ½¹¹•Ñ•°‰ÕÐÑ¡”½±±½…°µ½¹±äÉ•½É‘Ì½¸Ñ¡¥Ì‘•Ù¥”Ý¥±°‰”É•Á±…•¸4(€€€€€€€€€€€€ð½Q•áÐø4(€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹µ½‘…±MÑ…­Ñ¥½¹Íôø4(€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”ÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…Éå	ÕÑÑ½¹ô½¹AÉ•ÍÌõì ¤€ôøÍ•Ñ%Í=Ý¹%Ñ5½‘…±=Á•¸¡™…±Í”¥ôø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…Éå	ÕÑÑ½¹Q•áÑôù…¹•°ð½Q•áÐø4(€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”4(€€€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹ÁÉ¥µ…Éå	ÕÑÑ½¹ô4(€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€€€½Ý¹•Ù¥•…Ñ…5ÕÑ…Ñ¥½¸¹µÕÑ…Ñ”¡Õ¹‘•™¥¹•°ì4(€€€€€€€€€€€€€€€€€€€½¹MÕ•ÍÌè€¡ì‘•Ù¥•UÍ•Èô¤€ôøì4(€€€€€€€€€€€€€€€€€€€€€½¹ÍÐ¹•áÑ•Ù¥•AÉ½™¥±”€ô‘•Ù¥•AÉ½™¥±”ì4(€€€€€€€€€€€€€€€€€€€€€¥˜€ …¹•áÑ•Ù¥•AÉ½™¥±”¤ì4(€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì4(€€€€€€€€€€€€€€€€€€€€€ô4(€€€€€€€€€€€€€€€€€€€€€Í•ÍÍ¥½¹MÑ½É”¹•ÑMÑ…Ñ” ¤¹Í•ÑM•ÍÍ¥½¸ 4(€€€€€€€€€€€€€€€€€€€€€€€ì4(€€€€€€€€€€€€€€€€€€€€€€€€€…•ÍÍQ½­•¸è¹•áÑ•Ù¥•AÉ½™¥±”¹…•ÍÍQ½­•¸°4(€€€€€€€€€€€€€€€€€€€€€€€€€É•™É•Í¡Q½­•¸è¹•áÑ•Ù¥•AÉ½™¥±”¹É•™É•Í¡Q½­•¸°4(€€€€€€€€€€€€€€€€€€€€€€€€€ÕÍ•Èè‘•Ù¥•UÍ•È°4(€€€€€€€€€€€€€€€€€€€€€€€ô°4(€€€€€€€€€€€€€€€€€€€€€€€€‰‘•Ù¥”ˆ°4(€€€€€€€€€€€€€€€€€€€€€€¤ì4(€€€€€€€€€€€€€€€€€€€ô°4(€€€€€€€€€€€€€€€€€ô¤ì4(€€€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹ÁÉ¥µ…Éå	ÕÑÑ½¹Q•áÑôø4(€€€€€€€€€€€€€€€€€í½Ý¹•Ù¥•…Ñ…5ÕÑ…Ñ¥½¸¹¥ÍA•¹‘¥¹œ€ü€‰ÁÁ±å¥¹œ¸¸¸ˆ€è€‰=Ý¸¥Ð…¹ÕÍ”•Ù¥”µ%‰ô4(€€€€€€€€€€€€€€€€ð½Q•áÐø4(€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”4(€€€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹ÁÉ¥µ…Éå	ÕÑÑ½¹ô4(€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€€€½Ý¹•Ù¥•…Ñ…5ÕÑ…Ñ¥½¸¹µÕÑ…Ñ” ¤ì4(€€€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹ÁÉ¥µ…Éå	ÕÑÑ½¹Q•áÑôø4(€€€€€€€€€€€€€€€€€í½Ý¹•Ù¥•…Ñ…5ÕÑ…Ñ¥½¸¹¥ÍA•¹‘¥¹œ€ü€‰ÁÁ±å¥¹œ¸¸¸ˆ€è€‰=Ý¸¥Ð…¹ÍÑ…ä½¸Må¹Œ½‘”‰ô4(€€€€€€€€€€€€€€€€ð½Q•áÐø4(€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€ð½Y¥•Üø4(€€€€€€ð½5½‘…°ø4(4(€€€€€€ñ5½‘…°4(€€€€€€€ÑÉ…¹ÍÁ…É•¹Ð4(€€€€€€€Ù¥Í¥‰±”õí	½½±•…¸¡Á•¹‘¥¹½É•ÑAÉ½™¥±•%¥ô4(€€€€€€€…¹¥µ…Ñ¥½¹QåÁ”ô‰™…‘”ˆ4(€€€€€€€½¹I•ÅÕ•ÍÑ±½Í”õì ¤€ôøÍ•ÑA•¹‘¥¹½É•ÑAÉ½™¥±•%¡¹Õ±°¥ô4(€€€€€€ø4(€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹µ½‘…±MÉ¥µôø4(€€€€€€€€€€ñY¥•ÜÍÑå±”õímÍÑå±•Ì¹µ½‘…±…É°ìÝ¥‘Ñ èµ½‘…±…É‘]¥‘Ñ õuôø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹µ½‘…±Q¥Ñ±•ôù½É•ÐMå¹ŒÁÉ½™¥±”ð½Q•áÐø4(€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹µ½‘…±	½‘åôø4(€€€€€€€€€€€€€Q¡¥ÌÉ•µ½Ù•ÌÑ¡”É•µ•µ‰•É•Må¹Œ½‘”ÁÉ½™¥±”™É½´Ñ¡¥Ì‘•Ù¥”½¹±ä¸Q¡”É•µ½Ñ”…½Õ¹Ð…¹¥ÑÌ‘…Ñ„ÍÑ…äÕ¹¡…¹•¸e½ÕÈ±½…°•Ù¥”µ%ÁÉ½™¥±”ÍÑ…åÌ…Ù…¥±…‰±”¡•É”°…¹Ñ¡¥Ì‘•Ù¥”Ý¥±°ÍÝ¥Ñ ‰…¬Ñ¼•Ù¥”µ%…™Ñ•È™½É•ÑÑ¥¹œÑ¡¥ÌÍå¹ŒÁÉ½™¥±”¸4(€€€€€€€€€€€€ð½Q•áÐø4(€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹µ½‘…±Ñ¥½¹Íôø4(€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”ÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…Éå	ÕÑÑ½¹ô½¹AÉ•ÍÌõì ¤€ôøÍ•ÑA•¹‘¥¹½É•ÑAÉ½™¥±•%¡¹Õ±°¥ôø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…Éå	ÕÑÑ½¹Q•áÑôù…¹•°ð½Q•áÐø4(€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”4(€€€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹‘…¹•É	ÕÑÑ½¹ô4(€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì4(€€€€€€€€€€€€€€€€€¥˜€ …Á•¹‘¥¹½É•ÑAÉ½™¥±•%¤ì4(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì4(€€€€€€€€€€€€€€€€€ô4(€€€€€€€€€€€€€€€€€É•µ½Ù•1¥¹­•‘AÉ½™¥±”¡Á•¹‘¥¹½É•ÑAÉ½™¥±•%¤ì4(€€€€€€€€€€€€€€€€€Í•ÑA•¹‘¥¹½É•ÑAÉ½™¥±•%¡¹Õ±°¤ì4(€€€€€€€€€€€€€€€õô4(€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹‘…¹•É	ÕÑÑ½¹Q•áÑôù½É•Ðð½Q•áÐø4(€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø4(€€€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€€€ð½Y¥•Üø4(€€€€€€€€ð½Y¥•Üø4(€€€€€€ð½5½‘…°ø4(€€€€ð½MÉ••¹½¹Ñ…¥¹•Èø4(€€¤ì4)ô4(4)½¹ÍÐÍÑå±•Ì€ôMÑå±•M¡••Ð¹É•…Ñ”¡ì4(€½µÁ…ÑM•ÑÑ¥¹Í…Éèì4(€€€…Àè€ÄÈ°4(€€€Á…‘‘¥¹œè€ÄÐ°4(€ô°4(€ÁÉ½™¥±•…ÑÌèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€ÄÈ°4(€ô°4(€ÁÉ½™¥±•…Ðèì4(€€€™±•àè€Ä°4(€€€µ¥¹]¥‘Ñ è€ÄÌÈ°4(€ô°4(€±¥ÍÐèì4(€€€…Àè€ÄÀ°4(€ô°4(€±…‰•°èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹±…‰•°°4(€ô°4(€±…‰•±]¥Ñ¡!•±Àèì4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€à°4(€ô°4(€Ù…±Õ”èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹ÍÕ‰¡•…‘¥¹œ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€ô°4(€ÍÝ¥Ñ¡	±½¬èì4(€€€…Àè€à°4(€ô°4(€ÍÝ¥Ñ¡I½Üèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€ÄÀ°4(€ô°4(€ÍÝ¥Ñ¡1¥ÍÐèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€ÄÀ°4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€ô°4(€±¥¹­•‘AÉ½™¥±•I½Üèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€…Àè€à°4(€ô°4(€É…¹•5½‘•I½Üèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€ÄÀ°4(€ô°4(€É…¹•‘¥Ñ½Èèì4(€€€…Àè€ÄÀ°4(€ô°4(€…•¹Ñ‘¥Ñ½Èèì4(€€€…Àè€Ø°4(€ô°4(€…•¹Ñ!•…‘•ÉI½Üèì4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°4(€€€…Àè€à°4(€ô°4(€½±½É‘¥Ñ½ÉI½Üèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€™±•á]É…Àè€‰ÝÉ…Àˆ°4(€€€…Àè€ÄÀ°4(€ô°4(€½±½É1…‰•°èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€™½¹ÑM¥é”è€ÄÐ°4(€€€±¥¹•!•¥¡Ðè€ÈÀ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€€€Ý¥‘Ñ è€ÜØ°4(€ô°4(€…•¹ÑAÉ•Ù¥•Üèì4(€€€Ý¥‘Ñ è€ÌÐ°4(€€€¡•¥¡Ðè€ÌÐ°4(€€€‰½É‘•ÉI…‘¥ÕÌè€ÄÜ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€ô°4(€½±½ÉAÉ•Ù¥•Üèì4(€€€Ý¥‘Ñ è€ÐÈ°4(€€€¡•¥¡Ðè€ÌØ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹Í´°4(€€€½Ù•É™±½Üè€‰¡¥‘‘•¸ˆ°4(€ô°4(€½±½ÉA¥­•Èèì4(€€€Á½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°4(€€€Ñ½Àè€À°4(€€€É¥¡Ðè€À°4(€€€‰½ÑÑ½´è€À°4(€€€±•™Ðè€À°4(€€€Á…‘‘¥¹œè€À°4(€€€½Á…¥Ñäè€À°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ìÕÉÍ½Èè€‰Á½¥¹Ñ•Èˆô…Ì…¹ä¤€èíô¤°4(€ô°4(€…•¹Ñ%¹ÁÕÐèì4(€€€Ý¥‘Ñ è€ÄÈÀ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹µ°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÐ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÀ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹™¥•±°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ì½ÕÑ±¥¹•]¥‘Ñ è€À°½ÕÑ±¥¹•½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆô…Ì…¹ä¤€èíô¤°4(€ô°4(€É…¹•¥•±èì4(€€€…Àè€Ø°4(€ô°4(€ÕÉÉ•¹åI½Üèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°4(€€€…Àè€ÄÈ°4(€ô°4(€É…¹•%¹ÁÕÐèì4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹µ°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÐ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÀ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹™¥•±°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ì½ÕÑ±¥¹•]¥‘Ñ è€À°½ÕÑ±¥¹•½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆô…Ì…¹ä¤€èíô¤°4(€ô°4(€ÕÉÉ•¹å%¹ÁÕÐèì4(€€€Ý¥‘Ñ è€àà°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹µ°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÐ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÀ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹™¥•±°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€Äà°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ì½ÕÑ±¥¹•]¥‘Ñ è€À°½ÕÑ±¥¹•½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆô…Ì…¹ä¤€èíô¤°4(€ô°4(€•ÉÉ½Èèì4(€€€µ…É¥¹Q½Àè€à°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹Ý…É¹¥¹œ°4(€€€™½¹ÑM¥é”è€ÄÐ°4(€€€±¥¹•!•¥¡Ðè€ÈÀ°4(€ô°4(€¡•±Á•ÉQ•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹±…‰•°°4(€ô°4(€‘¥…¹½ÍÑ¥1¥ÍÐèì4(€€€…Àè€ÄÐ°4(€ô°4(€‘¥…¹½ÍÑ¥%Ñ•´èì4(€€€…Àè€ÄÈ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹µ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹™¥•±°4(€€€Á…‘‘¥¹œè€ÄØ°4(€ô°4(€‘¥…¹½ÍÑ¥%Ñ•µQ¥Ñ±”èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹ÍÕ‰¡•…‘¥¹œ°4(€€€™½¹Ñ]•¥¡Ðè€ˆàÀÀˆ°4(€ô°4(€‰ÕI•Á½ÉÑ%¹ÁÕÐèì4(€€€µ¥¹!•¥¡Ðè€ÄÈÀ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹µ°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÐ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…É°4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€±¥¹•!•¥¡Ðè€ÈÄ°4(€€€Ñ•áÑ±¥¹Y•ÉÑ¥…°è€‰Ñ½Àˆ°4(€€€€¸¸¸¡A±…Ñ™½É´¹=L€ôôô€‰Ý•ˆˆ€ü€¡ì½ÕÑ±¥¹•]¥‘Ñ è€À°½ÕÑ±¥¹•½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°É•Í¥é”è€‰Ù•ÉÑ¥…°ˆô…Ì…¹ä¤€èíô¤°4(€ô°4(€‘¥…¹½ÍÑ¥I•ÍÕ±Ðèì4(€€€…Àè€Ø°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹µ°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹™¥•±°4(€€€Á…‘‘¥¹œè€ÄÐ°4(€ô°4(€‘¥…¹½ÍÑ¥MÕ•ÍÌèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹ÍÕ•ÍÌ°4(€€€™½¹ÑM¥é”è€ÄØ°4(€€€±¥¹•!•¥¡Ðè€ÈÈ°4(€€€™½¹Ñ]•¥¡Ðè€ˆàÀÀˆ°4(€ô°4(€Í¥¹=ÕÑ	ÕÑÑ½¸èì4(€€€…±¥¹M•±˜è€‰™±•àµÍÑ…ÉÐˆ°4(€€€‰½É‘•ÉI…‘¥ÕÌè€äää°4(€€€‰…­É½Õ¹‘½±½Èè€ˆÉÈˆ°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄØ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€ô°4(€Í¥¹=ÕÑ	ÕÑÑ½¹Q•áÐèì4(€€€½±½Èè€ˆäÅÅˆ°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹½¹ÑÉ½°°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€ô°4(€µ½‘…±MÉ¥´èì4(€€€™±•àè€Ä°4(€€€‰…­É½Õ¹‘½±½Èè€‰É‰„ ÈÜ°€Èä°€ÌÄ°€À¸ÌÔ¤ˆ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°4(€€€Á…‘‘¥¹œè€ÈÀ°4(€ô°4(€µ½‘…±…Éèì4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…É°4(€€€‰½É‘•ÉI…‘¥ÕÌèÑ¡•µ”¹É…‘¥ÕÌ¹±œ°4(€€€Á…‘‘¥¹œè€ÈÀ°4(€€€…Àè€ÄÐ°4(€€€‰½É‘•É]¥‘Ñ è€Ä°4(€€€‰½É‘•É½±½ÈèÑ¡•µ”¹½±½ÉÌ¹‰½É‘•È°4(€€€µ…á]¥‘Ñ è€ÔØÀ°4(€€€…±¥¹M•±˜è€‰•¹Ñ•Èˆ°4(€€€€¸¸¹Ñ¡•µ”¹Í¡…‘½Ü°4(€ô°4(€µ½‘…±Q¥Ñ±”èì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹¥¹¬°4(€€€™½¹ÑM¥é”è€ÈÈ°4(€€€±¥¹•!•¥¡Ðè€Èà°4(€€€™½¹Ñ]•¥¡Ðè€ˆàÀÀˆ°4(€ô°4(€µ½‘…±	½‘äèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹µÕÑ•°4(€€€€¸¸¹Ñ¡•µ”¹ÑåÁ½É…Á¡ä¹‰½‘ä°4(€ô°4(€µ½‘…±Ñ¥½¹Ìèì4(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°4(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰™±•àµ•¹ˆ°4(€€€…Àè€ÄÀ°4(€ô°4(€µ½‘…±MÑ…­Ñ¥½¹Ìèì4(€€€…Àè€ÄÀ°4(€ô°4(€Í•½¹‘…Éå	ÕÑÑ½¸èì4(€€€‰½É‘•ÉI…‘¥ÕÌè€äää°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹ÑM½™Ð°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄØ°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€ô°4(€Í•½¹‘…Éå	ÕÑÑ½¹Q•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹ÑM½™ÑQ•áÐ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€ô°4(€ÁÉ¥µ…Éå	ÕÑÑ½¸èì4(€€€‰½É‘•ÉI…‘¥ÕÌè€äää°4(€€€‰…­É½Õ¹‘½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹Ð°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€Äà°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€ô°4(€ÁÉ¥µ…Éå	ÕÑÑ½¹Q•áÐèì4(€€€½±½ÈèÑ¡•µ”¹½±½ÉÌ¹…•¹ÑQ•áÐ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€ô°4(€‘…¹•É	ÕÑÑ½¸èì4(€€€‰½É‘•ÉI…‘¥ÕÌè€äää°4(€€€‰…­É½Õ¹‘½±½Èè€ˆäÅÅˆ°4(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€Äà°4(€€€Á…‘‘¥¹Y•ÉÑ¥…°è€ÄÈ°4(€ô°4(€‘…¹•É	ÕÑÑ½¹Q•áÐèì4(€€€½±½Èè€ˆˆ°4(€€€™½¹Ñ]•¥¡Ðè€ˆÜÀÀˆ°4(€ô°4)ô¤ì4

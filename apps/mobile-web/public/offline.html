@@ -6,25 +6,16 @@
     <meta name="theme-color" content="#fffdf8" />
     <title>Spending Tracker is offline</title>
     <style>
-      * { box-sizing: border-box; }
       body { align-items: center; background: #fffdf8; color: #1f2328; display: flex; font: 16px system-ui, sans-serif; justify-content: center; margin: 0; min-height: 100vh; padding: 24px; text-align: center; }
-      main { max-width: 28rem; }
-      img { border-radius: 22%; height: 88px; margin-bottom: 20px; width: 88px; }
+      main { max-width: 26rem; }
       h1 { font-size: 1.75rem; margin: 0 0 .75rem; }
       p { color: #64707a; line-height: 1.5; margin: 0; }
-      button { background: #0f766e; border: 0; border-radius: 999px; color: #fff; cursor: pointer; font: inherit; font-weight: 700; margin-top: 22px; padding: 12px 18px; }
-      button:focus-visible { outline: 3px solid #99f6e4; outline-offset: 3px; }
     </style>
   </head>
   <body>
     <main>
-      <img src="./icon-192.png" alt="" />
       <h1>Spending Tracker is offline</h1>
-      <p>Your saved tracker is unavailable on this first offline visit. Reconnect once to finish loading the app.</p>
-      <button type="button" onclick="window.location.reload()">Try again</button>
+      <p>Connect once to load the app, then your saved tracker can open offline.</p>
     </main>
-    <script>
-      window.addEventListener("online", () => window.location.reload());
-    </script>
   </body>
 </html>
