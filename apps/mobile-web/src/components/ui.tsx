@@ -412,8 +412,8 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   buttonCompact: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
   },
   buttonPrimary: {
     backgroundColor: theme.colors.accent,
@@ -426,8 +426,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   buttonTextCompact: {
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   buttonTextPrimary: {
     color: theme.colors.accentText,

@@ -40,7 +40,6 @@ export const config = {
   deviceRegistrationWindowMinutes: positiveInteger(process.env.DEVICE_REGISTRATION_WINDOW_MINUTES, 60),
   transferAttemptsPerWindow: positiveInteger(process.env.TRANSFER_ATTEMPTS_PER_WINDOW, 10),
   transferAttemptWindowMinutes: positiveInteger(process.env.TRANSFER_ATTEMPT_WINDOW_MINUTES, 15),
-  transferTokenLifetimeMinutes: positiveInteger(process.env.TRANSFER_TOKEN_LIFETIME_MINUTES, 10),
   diagnosticReportsPerWindow: positiveInteger(process.env.DIAGNOSTIC_REPORTS_PER_WINDOW, 5),
   diagnosticWindowMinutes: positiveInteger(process.env.DIAGNOSTIC_WINDOW_MINUTES, 60),
   diagnosticRetentionDays: positiveInteger(process.env.DIAGNOSTIC_RETENTION_DAYS, 30),

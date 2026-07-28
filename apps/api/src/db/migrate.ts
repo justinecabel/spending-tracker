@@ -159,7 +159,27 @@ export function runMigrations() {
   } else {
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sync_code ON users(sync_code) WHERE sync_code IS NOT NULL;");
   }
-  db.exec("UPDATE users SET sync_code = NULL WHERE sync_code IS NOT NULL;");
+
+  // Preserve pairing codes created by the short-lived transfer-token version.
+  // Once copied into users.sync_code, the code remains available until explicitly regenerated.
+  db.exec(`
+    UPDATE users
+    SET sync_code = (
+      SELECT transfer_tokens.token
+      FROM transfer_tokens
+      WHERE transfer_tokens.user_id = users.id
+        AND transfer_tokens.used_at IS NULL
+      ORDER BY transfer_tokens.created_at DESC
+      LIMIT 1
+    )
+    WHERE users.sync_code IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM transfer_tokens
+        WHERE transfer_tokens.user_id = users.id
+          AND transfer_tokens.used_at IS NULL
+      );
+  `);
 
   if (!userColumns.some((column) => column.name === "last_seen_at")) {
     db.exec("ALTER TABLE users ADD COLUMN last_seen_at TEXT;");

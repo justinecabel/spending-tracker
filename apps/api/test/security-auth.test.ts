@@ -6,6 +6,7 @@ import {
   consumeTransferToken,
   createSession,
   createTransferToken,
+  regenerateTransferToken,
   refreshSession,
 } from "../src/auth";
 import { db } from "../src/db/client";
@@ -49,7 +50,7 @@ test("refresh tokens rotate once and reuse revokes the replacement family", () =
   }
 });
 
-test("pairing codes are cryptographic, expiring, and consumed exactly once", () => {
+test("pairing codes are cryptographic, stable, and explicitly regeneratable", () => {
   runMigrations();
   const deviceId = `transfer-device-${nanoid()}`;
   const user = authenticateOrCreateDeviceUserWithName(deviceId, DEVICE_SECRET);
@@ -57,15 +58,17 @@ test("pairing codes are cryptographic, expiring, and consumed exactly once", () 
   try {
     const transfer = createTransferToken(user.id);
     assert.match(transfer.token, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
-    assert.ok(new Date(transfer.expiresAt).getTime() > Date.now());
-    assert.ok(new Date(transfer.expiresAt).getTime() <= Date.now() + 11 * 60 * 1_000);
+    assert.equal(transfer.expiresAt, "9999-12-31T23:59:59.999Z");
 
     const linkedSession = consumeTransferToken(transfer.token);
     assert.equal(linkedSession.user.id, user.id);
-    assert.throws(
-      () => consumeTransferToken(transfer.token),
-      /does not exist or is no longer valid/,
-    );
+    assert.equal(consumeTransferToken(transfer.token).user.id, user.id);
+    assert.equal(createTransferToken(user.id).token, transfer.token);
+
+    const regenerated = regenerateTransferToken(user.id);
+    assert.notEqual(regenerated.token, transfer.token);
+    assert.throws(() => consumeTransferToken(transfer.token), /does not exist or is no longer valid/);
+    assert.equal(consumeTransferToken(regenerated.token).user.id, user.id);
   } finally {
     deleteUserData(user.id);
   }

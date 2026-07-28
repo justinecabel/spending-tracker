@@ -312,43 +312,15 @@ export function createTransferToken(userId: string) {
     throw new Error("User not found");
   }
 
-  const now = new Date();
-  const active = db
-    .prepare(
-      `
-        SELECT token, expires_at
-        FROM transfer_tokens
-        WHERE user_id = ? AND used_at IS NULL AND expires_at > ?
-        ORDER BY created_at DESC
-        LIMIT 1
-      `,
-    )
-    .get(userId, now.toISOString()) as { token: string; expires_at: string } | undefined;
-
-  if (active) {
-    return transferTokenResponseSchema.parse({
-      token: active.token,
-      pairingCode: active.token,
-      expiresAt: active.expires_at,
-      qrValue: active.token,
-    });
+  const token = user.sync_code ?? allocateSyncCode();
+  if (!user.sync_code) {
+    db.prepare("UPDATE users SET sync_code = ?, updated_at = ? WHERE id = ?").run(token, new Date().toISOString(), userId);
   }
-
-  const token = allocateSyncCode();
-  const expiresAt = new Date(
-    now.getTime() + config.transferTokenLifetimeMinutes * 60 * 1_000,
-  ).toISOString();
-  db.prepare(
-    `
-      INSERT INTO transfer_tokens (id, user_id, token, created_at, expires_at, used_at)
-      VALUES (?, ?, ?, ?, ?, NULL)
-    `,
-  ).run(nanoid(), userId, token, now.toISOString(), expiresAt);
 
   return transferTokenResponseSchema.parse({
     token,
     pairingCode: token,
-    expiresAt,
+    expiresAt: "9999-12-31T23:59:59.999Z",
     qrValue: token,
   });
 }
@@ -359,57 +331,28 @@ export function regenerateTransferToken(userId: string) {
     throw new Error("User not found");
   }
 
-  db.prepare(
-    "UPDATE transfer_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
-  ).run(new Date().toISOString(), userId);
-  return createTransferToken(userId);
+  const token = allocateSyncCode();
+  const now = new Date().toISOString();
+  db.prepare("UPDATE transfer_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL").run(now, userId);
+  db.prepare("UPDATE users SET sync_code = ?, updated_at = ? WHERE id = ?").run(token, now, userId);
+
+  return transferTokenResponseSchema.parse({
+    token,
+    pairingCode: token,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    qrValue: token,
+  });
 }
 
 export function consumeTransferToken(rawToken: string) {
   const token = extractTransferToken(rawToken);
-  let result: ReturnType<typeof createSession> | null = null;
-  let failure: Error | null = null;
-  const now = new Date().toISOString();
+  const row = db.prepare("SELECT * FROM users WHERE sync_code = ?").get(token) as DatabaseUserRow | undefined;
 
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const row = db
-      .prepare(
-        `
-          SELECT transfer_tokens.id AS transfer_token_id, transfer_tokens.expires_at AS transfer_expires_at, users.*
-          FROM transfer_tokens
-          JOIN users ON users.id = transfer_tokens.user_id
-          WHERE transfer_tokens.token = ? AND transfer_tokens.used_at IS NULL
-        `,
-      )
-      .get(token) as TransferSessionRow | undefined;
-
-    if (!row || row.transfer_expires_at <= now) {
-      failure = new Error("This pairing code does not exist or is no longer valid");
-    } else {
-      const consumed = db
-        .prepare("UPDATE transfer_tokens SET used_at = ? WHERE id = ? AND used_at IS NULL")
-        .run(now, row.transfer_token_id);
-      if (consumed.changes !== 1) {
-        failure = new Error("This pairing code does not exist or is no longer valid");
-      } else {
-        result = createSession(hydrateUser(row));
-      }
-    }
-
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
+  if (!row) {
+    throw new Error("This pairing code does not exist or is no longer valid");
   }
 
-  if (failure) {
-    throw failure;
-  }
-  if (!result) {
-    throw new Error("Pairing code consumption failed");
-  }
-  return result;
+  return createSession(hydrateUser(row));
 }
 
 export function verifyAccessToken(token: string) {
@@ -581,7 +524,8 @@ function allocateSyncCode() {
   do {
     code = makeSyncCode();
   } while (
-    db.prepare("SELECT id FROM transfer_tokens WHERE token = ?").get(code) as { id: string } | undefined
+    db.prepare("SELECT id FROM users WHERE sync_code = ?").get(code) as { id: string } | undefined
+    || db.prepare("SELECT id FROM transfer_tokens WHERE token = ?").get(code) as { id: string } | undefined
   );
 
   return code;
@@ -673,9 +617,4 @@ type RefreshSessionRow = DatabaseUserRow & {
   refresh_expires_at: string;
   refresh_used_at: string | null;
   refresh_family_id: string | null;
-};
-
-type TransferSessionRow = DatabaseUserRow & {
-  transfer_token_id: string;
-  transfer_expires_at: string;
 };

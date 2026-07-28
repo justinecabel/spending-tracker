@@ -38,7 +38,7 @@ export function TransferOutPanel() {
     <View style={styles.panel}>
       <SectionTitle
         title="Transfer/sync access"
-        subtitle="Create a one-time code that expires after 10 minutes."
+        subtitle="Show a stable code for this account. Regenerating it disconnects the old code for future joins."
       />
       {visibleCode ? (
         <View style={styles.codeOnlyLayout}>
@@ -67,7 +67,7 @@ export function TransferOutPanel() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Regenerate sync code</Text>
             <Text style={styles.modalBody}>
-              This expires the current code and creates a new one-time code for the next join.
+              This creates a new code for future joins. Anyone using the old code will need the new one.
             </Text>
             <View style={styles.modalActions}>
               <Pressable style={styles.secondaryButton} onPress={() => setIsRegenerateModalOpen(false)}>
