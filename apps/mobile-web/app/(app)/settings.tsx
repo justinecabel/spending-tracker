@@ -893,7 +893,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: theme.colors.card,
     color: theme.colors.ink,
-    fontSize: 15,
+    fontSize: 16,
     lineHeight: 21,
     textAlignVertical: "top",
     ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineColor: "transparent", resize: "vertical" } as any) : {}),

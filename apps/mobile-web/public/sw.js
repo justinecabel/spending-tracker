@@ -1,9 +1,9 @@
 const CACHE_PREFIX = "spending-tracker-";
-const SHELL_CACHE = `${CACHE_PREFIX}shell-v22`;
-const STATIC_CACHE = `${CACHE_PREFIX}static-v22`;
+const SHELL_CACHE = `${CACHE_PREFIX}shell-v23`;
+const STATIC_CACHE = `${CACHE_PREFIX}static-v23`;
 const APP_URL = new URL("./", self.registration.scope).href;
 const OFFLINE_URL = new URL("./offline.html", self.registration.scope).href;
-const APP_SHELL = [APP_URL, OFFLINE_URL, new URL("./manifest.webmanifest?v=22", self.registration.scope).href, new URL("./icon-192.png", self.registration.scope).href, new URL("./icon-512.png", self.registration.scope).href];
+const APP_SHELL = [APP_URL, OFFLINE_URL, new URL("./manifest.webmanifest?v=23", self.registration.scope).href, new URL("./icon-192.png", self.registration.scope).href, new URL("./icon-512.png", self.registration.scope).href];
 const STATIC_DESTINATIONS = new Set(["font", "image", "manifest", "script", "style", "worker"]);
 
 self.addEventListener("install", (event) => {

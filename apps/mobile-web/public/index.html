@@ -31,7 +31,7 @@
     />
     <meta name="twitter:image" content="https://justinecabel.github.io/spending-tracker/icon-512.png" />
     <link rel="canonical" href="https://justinecabel.github.io/spending-tracker/" />
-    <link id="spending-tracker-manifest" rel="manifest" href="./manifest.webmanifest?v=22" />
+    <link id="spending-tracker-manifest" rel="manifest" href="./manifest.webmanifest?v=23" />
     <link rel="icon" href="./icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <title>Spending Tracker — Private, offline-ready expense tracking</title>
@@ -53,6 +53,15 @@
       html,
       body {
         height: 100%;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      /* iOS Safari zooms focused controls below 16px, which makes the PWA feel like a web page. */
+      input,
+      textarea,
+      select {
+        font-size: 16px !important;
       }
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
