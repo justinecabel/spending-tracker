@@ -29,12 +29,14 @@ The current product shape is:
 - Shared UI primitives live under `apps/mobile-web/src/components`.
 - Session/profile state lives in `apps/mobile-web/src/state/session.ts`.
 - Offline draft and sync queue state lives in `apps/mobile-web/src/state`.
+- App data access goes through `apps/mobile-web/src/backend/device-backend.ts`.
+- `remote-storage.ts` is the optional off-device adapter used for pull/push sync; screens should not fetch data from the HTTP API directly.
 - The app should behave like an installable PWA on web.
 - Compact screens should keep floating actions from covering the last visible content.
 
 ## Backend Notes
 
-- The API is standalone and can run without the Expo app.
+- The API is standalone remote storage and can run without the Expo app.
 - SQLite is the current persistence layer.
 - Docker support exists for the API via `docker-compose.yml`.
 - Sync/profile behavior should remain compatible with the client-side profile model.

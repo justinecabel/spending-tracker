@@ -247,7 +247,10 @@ export function createSession(user: User, options: { familyId?: string } = {}) {
   });
 }
 
-export function refreshSession(token: string) {
+export function refreshSession(
+  token: string,
+  deviceCredential: { deviceId?: string | null; deviceSecret?: string | null } = {},
+) {
   let result: ReturnType<typeof createSession> | null = null;
   let failure: Error | null = null;
   const now = new Date();
@@ -285,7 +288,13 @@ export function refreshSession(token: string) {
       if (consumed.changes !== 1) {
         failure = new Error("Refresh token is invalid or expired");
       } else {
-        result = createSession(hydrateUser(row), {
+        const user = hydrateUser(row);
+        enrollLegacyDeviceCredential(
+          user,
+          deviceCredential.deviceId,
+          deviceCredential.deviceSecret,
+        );
+        result = createSession(user, {
           familyId: row.refresh_family_id ?? row.refresh_token_id,
         });
       }

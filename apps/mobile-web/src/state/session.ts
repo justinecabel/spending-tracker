@@ -12,6 +12,7 @@ type SessionState = {
   user: User | null;
   activeProfile: ProfileSlot | null;
   activeLinkedProfileUserId: string | null;
+  staleLinkedProfileUserId: string | null;
   deviceProfile: StoredProfileSession | null;
   linkedProfiles: StoredProfileSession[];
   hydrated: boolean;
@@ -20,12 +21,14 @@ type SessionState = {
   updateDeviceProfileUser: (user: User) => void;
   activateProfile: (slot: ProfileSlot, linkedProfileUserId?: string) => void;
   removeLinkedProfile: (userId: string) => void;
+  markLinkedProfileStale: (userId: string) => void;
+  clearStaleLinkedProfile: () => void;
   clearSession: () => void;
   setHydrated: (value: boolean) => void;
 };
 
 function withActiveState(
-  state: Omit<SessionState, "setSession" | "setUser" | "updateDeviceProfileUser" | "activateProfile" | "removeLinkedProfile" | "clearSession" | "setHydrated">,
+  state: Omit<SessionState, "setSession" | "setUser" | "updateDeviceProfileUser" | "activateProfile" | "removeLinkedProfile" | "markLinkedProfileStale" | "clearStaleLinkedProfile" | "clearSession" | "setHydrated">,
 ) {
   const activeSession =
     state.activeProfile === "device"
@@ -72,6 +75,7 @@ export const sessionStore = create<SessionState>()(
       user: null,
       activeProfile: null,
       activeLinkedProfileUserId: null,
+      staleLinkedProfileUserId: null,
       deviceProfile: null,
       linkedProfiles: [],
       hydrated: true,
@@ -80,6 +84,10 @@ export const sessionStore = create<SessionState>()(
           const nextLinkedProfiles = slot === "linked" ? upsertLinkedProfile(state.linkedProfiles, payload) : state.linkedProfiles;
           return withActiveState({
             ...state,
+            staleLinkedProfileUserId:
+              slot === "linked" && state.staleLinkedProfileUserId === payload.user.id
+                ? null
+                : state.staleLinkedProfileUserId,
             activeProfile: slot,
             activeLinkedProfileUserId:
               slot === "linked" ? payload.user.id : state.activeLinkedProfileUserId,
@@ -162,11 +170,18 @@ export const sessionStore = create<SessionState>()(
 
           return withActiveState({
             ...state,
+            staleLinkedProfileUserId:
+              state.staleLinkedProfileUserId === userId ? null : state.staleLinkedProfileUserId,
             activeProfile: nextActiveProfile,
             activeLinkedProfileUserId: nextActiveLinkedProfileUserId,
             linkedProfiles: nextLinkedProfiles,
           });
         }),
+      markLinkedProfileStale: (userId) =>
+        set((state) => ({
+          staleLinkedProfileUserId: state.linkedProfiles.some((profile) => profile.user.id === userId) ? userId : null,
+        })),
+      clearStaleLinkedProfile: () => set({ staleLinkedProfileUserId: null }),
       clearSession: () =>
         set((state) => {
           if (!state.accessToken && !state.refreshToken && !state.user && state.activeProfile === null) {
@@ -209,6 +224,11 @@ export const sessionStore = create<SessionState>()(
 
         state.activeProfile = nextActiveProfile;
         state.activeLinkedProfileUserId = nextActiveLinkedProfileUserId;
+        state.staleLinkedProfileUserId = state.linkedProfiles.some(
+          (profile) => profile.user.id === state.staleLinkedProfileUserId,
+        )
+          ? state.staleLinkedProfileUserId
+          : null;
         state.accessToken = activeSession?.accessToken ?? null;
         state.refreshToken = activeSession?.refreshToken ?? null;
         state.user = activeSession?.user ?? null;

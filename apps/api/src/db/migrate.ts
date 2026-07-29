@@ -82,6 +82,7 @@ export function runMigrations() {
       due_at TEXT NOT NULL,
       reminder_days_before INTEGER,
       paid_at TEXT,
+      client_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id),
@@ -193,6 +194,14 @@ export function runMigrations() {
   if (!categoryColumns.some((column) => column.name === "is_system")) {
     db.exec("ALTER TABLE categories ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;");
   }
+
+  const debtColumns = db.prepare("PRAGMA table_info(debts)").all() as Array<{ name: string }>;
+  if (!debtColumns.some((column) => column.name === "client_id")) {
+    db.exec("ALTER TABLE debts ADD COLUMN client_id TEXT;");
+  }
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_debts_user_client_id ON debts(user_id, client_id) WHERE client_id IS NOT NULL;",
+  );
 
   const refreshTokenColumns = db.prepare("PRAGMA table_info(refresh_tokens)").all() as Array<{ name: string }>;
   if (!refreshTokenColumns.some((column) => column.name === "used_at")) {

@@ -5,7 +5,7 @@ import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View
 import { Card, FormModal, Metric, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
-import { api } from "../../src/lib/api";
+import { deviceBackend as api } from "../../src/backend/device-backend";
 import { combineDateAndTime, formatDateTimeLabel, formatMoney, rollMonthlyDateForward, toDateInputValue, toTimeInputValue } from "../../src/lib/date";
 import { checkDebtReminders } from "../../src/hooks/use-debt-reminders";
 import { sessionStore } from "../../src/state/session";

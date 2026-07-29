@@ -335,6 +335,14 @@ export function getDebts(userId: string): Debt[] {
 export function createDebt(userId: string, input: CreateDebtInput): Debt {
   ensureSystemCategories(userId);
   const parsed = createDebtInputSchema.parse(input);
+  const duplicate = parsed.clientId
+    ? (db
+        .prepare("SELECT * FROM debts WHERE user_id = ? AND client_id = ?")
+        .get(userId, parsed.clientId) as DebtRow | undefined)
+    : undefined;
+  if (duplicate) {
+    return mapDebt(duplicate);
+  }
   const categoryId = parsed.categoryId ?? getSystemCategory(userId, "Other")?.id;
   if (!categoryId) {
     throw new Error("Category not found");
@@ -350,14 +358,15 @@ export function createDebt(userId: string, input: CreateDebtInput): Debt {
     due_at: parsed.dueAt,
     reminder_days_before: parsed.reminderDaysBefore ?? null,
     paid_at: null,
+    client_id: parsed.clientId ?? null,
     created_at: now,
     updated_at: now,
   };
 
   db.prepare(
     `
-      INSERT INTO debts (id, user_id, category_id, merchant, amount, due_at, reminder_days_before, paid_at, created_at, updated_at)
-      VALUES (@id, @user_id, @category_id, @merchant, @amount, @due_at, @reminder_days_before, @paid_at, @created_at, @updated_at)
+      INSERT INTO debts (id, user_id, category_id, merchant, amount, due_at, reminder_days_before, paid_at, client_id, created_at, updated_at)
+      VALUES (@id, @user_id, @category_id, @merchant, @amount, @due_at, @reminder_days_before, @paid_at, @client_id, @created_at, @updated_at)
     `,
   ).run(row);
   return mapDebt(row);
@@ -1034,6 +1043,7 @@ type DebtRow = {
   due_at: string;
   reminder_days_before: 0 | 1 | 3 | 7 | null;
   paid_at: string | null;
+  client_id: string | null;
   created_at: string;
   updated_at: string;
 };

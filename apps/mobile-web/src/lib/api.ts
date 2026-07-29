@@ -22,7 +22,7 @@ import type {
   UpdateDebtInput,
   UpdateUserPreferencesInput,
 } from "@spending-tracker/shared";
-import { ensureDeviceId, getLocalDeviceLabel } from "./device";
+import { ensureDeviceCredentials, ensureDeviceId, getLocalDeviceLabel } from "./device";
 import { sessionStore } from "../state/session";
 
 // Expo replaces direct EXPO_PUBLIC_* references while building the web bundle.
@@ -59,22 +59,26 @@ async function refreshAccessToken() {
   }
 
   refreshPromise = (async () => {
-    const { refreshToken, activeProfile } = sessionStore.getState();
+    const { refreshToken, activeProfile, activeLinkedProfileUserId, markLinkedProfileStale } = sessionStore.getState();
     if (!refreshToken) {
       sessionStore.getState().clearSession();
       return null;
     }
 
+    const deviceCredential = await ensureDeviceCredentials();
     const response = await fetch(`${apiUrl}/auth/refresh`, {
       method: "POST",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ refreshToken }),
+      body: JSON.stringify({ refreshToken, ...deviceCredential }),
     });
 
     if (!response.ok) {
+      if (response.status === 401 && activeProfile === "linked" && activeLinkedProfileUserId) {
+        markLinkedProfileStale(activeLinkedProfileUserId);
+      }
       sessionStore.getState().clearSession();
       return null;
     }
@@ -114,11 +118,13 @@ async function request<T>(path: string, init?: RequestInit, retry = true): Promi
 }
 
 export const api = {
-  signInWithDevice: async () =>
-    request<AuthResponse>("/auth/device", {
+  signInWithDevice: async () => {
+    const deviceCredential = await ensureDeviceCredentials();
+    return request<AuthResponse>("/auth/device", {
       method: "POST",
-      body: JSON.stringify({ deviceId: await ensureDeviceId(), deviceName: await getLocalDeviceLabel() }),
-    }),
+      body: JSON.stringify({ ...deviceCredential, deviceName: await getLocalDeviceLabel() }),
+    });
+  },
   signInWithGoogle: async (idToken: string) =>
     request<AuthResponse>("/auth/google", {
       method: "POST",
@@ -137,10 +143,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ...input, deviceId: await ensureDeviceId() }),
     }),
-  refreshToken: (refreshToken: string) =>
+  refreshToken: async (refreshToken: string) =>
     request<AuthResponse>("/auth/refresh", {
       method: "POST",
-      body: JSON.stringify({ refreshToken }),
+      body: JSON.stringify({ refreshToken, ...(await ensureDeviceCredentials()) }),
     }),
   me: () => request<{ user: AuthResponse["user"] }>("/me"),
   updateMe: (input: UpdateUserPreferencesInput) =>

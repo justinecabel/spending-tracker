@@ -4,7 +4,7 @@ import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View
 import type { Transaction } from "@spending-tracker/shared";
 import { Card, FormModal, PageHeader, PillButton } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
-import { api } from "../../src/lib/api";
+import { deviceBackend as api } from "../../src/backend/device-backend";
 import {
   combineDateAndTime,
   formatDateTimeLabel,

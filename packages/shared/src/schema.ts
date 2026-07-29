@@ -187,6 +187,7 @@ export const createDebtInputSchema = z.object({
   amount: z.number().positive(),
   dueAt: z.string().datetime(),
   reminderDaysBefore: debtReminderDaysSchema.optional().nullable().default(null),
+  clientId: z.string().min(1).optional(),
 });
 
 export const updateDebtInputSchema = createDebtInputSchema.partial().extend({
@@ -224,7 +225,7 @@ export const clientDiagnosticResponseSchema = z.object({
 export const syncMutationSchema = z.object({
   id: z.string(),
   userId: z.string().min(1),
-  entity: z.enum(["transaction", "category", "budget", "preferences"]),
+  entity: z.enum(["transaction", "category", "budget", "debt", "countdown", "preferences"]),
   action: z.enum(["create", "update", "delete", "upsert"]),
   payload: z.record(z.any()),
   createdAt: z.string(),

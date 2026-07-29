@@ -6,7 +6,7 @@ import { buildDebtPaymentHealth, buildForecastAnalysis, type Debt, type Forecast
 import { ReportCharts } from "../../src/components/report-charts";
 import { Card, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
-import { api } from "../../src/lib/api";
+import { deviceBackend as api } from "../../src/backend/device-backend";
 import { formatDateTimeLabel, formatMoney } from "../../src/lib/date";
 import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange, type ResolvedSummaryRange } from "../../src/lib/summary-range";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";

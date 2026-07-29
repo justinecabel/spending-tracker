@@ -105,6 +105,7 @@ function AppShell() {
   const activeProfile = sessionStore((state) => state.activeProfile);
   const userId = sessionStore((state) => state.user?.id);
   const userCurrency = sessionStore((state) => state.user?.currency ?? "USD");
+  const clearStaleLinkedProfile = sessionStore((state) => state.clearStaleLinkedProfile);
   const appearanceProfileKey = getAppearanceProfileKey(activeProfile, userId);
   const appearanceMode = appearanceStore((state) => state.getMode(appearanceProfileKey));
   const customAccent = appearanceStore((state) => state.getAccent(appearanceProfileKey));
@@ -127,7 +128,7 @@ function AppShell() {
   const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus({ autoApplyWaitingUpdate: !accessToken });
   const { status: backendStatus, retry: retryBackend } = useBackendAvailability();
 
-  useBootstrapSession();
+  const { staleLinkedProfileUserId } = useBootstrapSession();
   useSyncQueue(accessToken ? userId : null);
   useLiveUpdates(Boolean(accessToken));
   useDebtReminders(Boolean(accessToken), userCurrency);
@@ -253,7 +254,12 @@ function AppShell() {
   }
 
   if (!accessToken) {
-    return <SignInScreen />;
+    return (
+      <SignInScreen
+        staleLinkedProfileUserId={staleLinkedProfileUserId}
+        onDismissStaleLinkedProfile={clearStaleLinkedProfile}
+      />
+    );
   }
 
   return (
@@ -290,14 +296,14 @@ function AppShell() {
             {backendStatus !== "available" ? <View style={[styles.syncStatusDot, { backgroundColor: backendStatus === "unavailable" ? palette.warning : palette.accent }]} /> : null}
             <Text style={[styles.syncBannerText, styles.syncBannerMessage, { color: isOnline ? palette.accent : palette.warning }]}>
               {backendStatus === "unavailable"
-                ? "Server unavailable — showing saved data."
+                ? "Remote storage unavailable — using data saved on this device."
                 : backendStatus === "checking"
-                ? "Checking server connection..."
+                ? "Checking remote storage..."
                 : updateAvailable
                 ? "A new version is ready. Reload to update the app."
                 : isOnline
                 ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} waiting to sync`
-                : `${pendingSyncCount ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} saved locally · ` : ""}Offline mode — showing saved data`}
+                : `${pendingSyncCount ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} saved on device · ` : ""}Offline — using device data`}
             </Text>
             {backendStatus === "unavailable" ? (
               <Pressable style={styles.updateButton} onPress={retryBackend}>

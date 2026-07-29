@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import {
+  authenticateOrCreateDeviceUserWithName,
   consumeTransferToken,
   createSession,
   createTransferToken,
-  findOrCreateDeviceUserWithName,
   findOrCreateUser,
   regenerateTransferToken,
   refreshSession,
@@ -89,11 +89,12 @@ router.get("/health", (_request, response) => {
 
 router.post("/auth/device", (request, response) => {
   const deviceId = requestedDeviceId(request) ?? randomUUID();
+  const deviceSecret = String(request.body?.deviceSecret ?? "");
   const deviceName =
     typeof request.body?.deviceName === "string" && request.body.deviceName.trim()
       ? request.body.deviceName.trim()
       : null;
-  const user = findOrCreateDeviceUserWithName(deviceId, deviceName);
+  const user = authenticateOrCreateDeviceUserWithName(deviceId, deviceSecret, deviceName);
   setDeviceCookie(response, deviceId);
   response.json(createSession(user));
 });
@@ -116,7 +117,13 @@ router.post("/auth/google", async (request, response) => {
 
 router.post("/auth/refresh", (request, response) => {
   try {
-    const session = refreshSession(String(request.body.refreshToken ?? ""));
+    const session = refreshSession(String(request.body.refreshToken ?? ""), {
+      deviceId: requestedDeviceId(request),
+      deviceSecret:
+        typeof request.body?.deviceSecret === "string"
+          ? request.body.deviceSecret
+          : null,
+    });
     if (session.user.deviceId) {
       setDeviceCookie(response, session.user.deviceId);
     }

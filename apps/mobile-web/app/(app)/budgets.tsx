@@ -4,7 +4,7 @@ import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Budget, Category } from "@spending-tracker/shared";
 import { Card, FormModal, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
-import { api } from "../../src/lib/api";
+import { deviceBackend as api } from "../../src/backend/device-backend";
 import { formatMoney, monthKey } from "../../src/lib/date";
 import { sessionStore } from "../../src/state/session";
 import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";

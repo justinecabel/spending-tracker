@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { remoteStorage as api } from "../backend/remote-storage";
+import { countdownStore } from "../state/countdown";
 import { draftTransactionsStore } from "../state/draft-transactions";
 import { offlineCacheStore } from "../state/offline-cache";
 import { offlineQueueStore } from "../state/offline-queue";
@@ -12,6 +13,7 @@ export function useSyncQueue(userId: string | null | undefined) {
     if (!userId) {
       return;
     }
+    const activeUserId = userId;
 
     let cancelled = false;
 
@@ -22,7 +24,7 @@ export function useSyncQueue(userId: string | null | undefined) {
 
       const { mutations, remove } = offlineQueueStore.getState();
       let processed = false;
-      for (const mutation of mutations.filter((queuedMutation) => queuedMutation.userId === userId)) {
+      for (const mutation of mutations.filter((queuedMutation) => queuedMutation.userId === activeUserId)) {
         try {
           if (mutation.entity === "transaction" && mutation.action === "create") {
             const payload = mutation.payload as { clientId?: string };
@@ -66,6 +68,39 @@ export function useSyncQueue(userId: string | null | undefined) {
             const payload = mutation.payload as Parameters<typeof api.upsertBudget>[0];
             await api.upsertBudget(payload);
           }
+          if (mutation.entity === "debt" && mutation.action === "create") {
+            const payload = mutation.payload as {
+              temporaryId: string;
+              data: Parameters<typeof api.createDebt>[0];
+            };
+            const debt = await api.createDebt(payload.data);
+            offlineCacheStore.getState().replaceDebt(activeUserId, payload.temporaryId, debt);
+            offlineQueueStore.getState().replaceDebtId(payload.temporaryId, debt.id);
+          }
+          if (mutation.entity === "debt" && mutation.action === "update") {
+            const payload = mutation.payload as {
+              id: string;
+              data: Parameters<typeof api.updateDebt>[1];
+            };
+            const debt = await api.updateDebt(payload.id, payload.data);
+            offlineCacheStore.getState().upsertDebt(activeUserId, debt);
+          }
+          if (mutation.entity === "debt" && mutation.action === "delete") {
+            const payload = mutation.payload as { id: string };
+            await api.deleteDebt(payload.id);
+            offlineCacheStore.getState().removeDebt(activeUserId, payload.id);
+          }
+          if (mutation.entity === "countdown" && mutation.action === "upsert") {
+            const payload = mutation.payload as Parameters<typeof api.upsertCountdown>[0];
+            const countdown = await api.upsertCountdown(payload);
+            countdownStore.getState().saveCountdown(activeUserId, countdown);
+            countdownStore.getState().markServerBacked(activeUserId);
+          }
+          if (mutation.entity === "countdown" && mutation.action === "delete") {
+            await api.deleteCountdown();
+            countdownStore.getState().removeCountdown(activeUserId);
+            countdownStore.getState().markServerBacked(activeUserId);
+          }
           remove(mutation.id);
           processed = true;
         } catch {
@@ -80,6 +115,8 @@ export function useSyncQueue(userId: string | null | undefined) {
           queryClient.invalidateQueries({ queryKey: ["report"] }),
           queryClient.invalidateQueries({ queryKey: ["categories"] }),
           queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+          queryClient.invalidateQueries({ queryKey: ["debts"] }),
+          queryClient.invalidateQueries({ queryKey: ["countdown"] }),
         ]);
       }
     }

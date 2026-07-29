@@ -46,6 +46,7 @@ function createDatabase() {
     CREATE TABLE countdowns (user_id TEXT PRIMARY KEY);
     CREATE TABLE budgets (id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
     CREATE TABLE categories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
+    CREATE TABLE client_diagnostics (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL);
     CREATE TABLE transfer_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT);
   `);

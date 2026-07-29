@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { Debt } from "@spending-tracker/shared";
-import { api } from "../lib/api";
+import { deviceBackend as api } from "../backend/device-backend";
 
 const CHECK_INTERVAL_MS = 60_000;
 const NOTIFIED_KEY = "spending-tracker-debt-reminders";

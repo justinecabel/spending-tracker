@@ -27,6 +27,22 @@ test("debt lifecycle works without a user-selected category", () => {
     assert.equal(created.merchant, "Before");
     assert.ok(created.categoryId);
 
+    const idempotent = createDebt(userId, {
+      merchant: "Retry-safe",
+      amount: 40,
+      dueAt: "2026-07-23T01:00:00.000Z",
+      reminderDaysBefore: null,
+      clientId: `debt-client-${userId}`,
+    });
+    const retried = createDebt(userId, {
+      merchant: "Retry-safe",
+      amount: 40,
+      dueAt: "2026-07-23T01:00:00.000Z",
+      reminderDaysBefore: null,
+      clientId: `debt-client-${userId}`,
+    });
+    assert.equal(retried.id, idempotent.id);
+
     const updated = updateDebt(userId, created.id, {
       merchant: "After",
       amount: 23.45,
@@ -37,6 +53,7 @@ test("debt lifecycle works without a user-selected category", () => {
     assert.equal(updated.paidAt, now);
 
     deleteDebt(userId, created.id);
+    deleteDebt(userId, idempotent.id);
     assert.deepEqual(getDebts(userId), []);
   } finally {
     db.prepare("DELETE FROM debts WHERE user_id = ?").run(userId);

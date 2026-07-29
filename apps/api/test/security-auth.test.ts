@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import test from "node:test";
 import { nanoid } from "nanoid";
 import {
@@ -9,11 +10,13 @@ import {
   regenerateTransferToken,
   refreshSession,
 } from "../src/auth";
+import { app } from "../src/app";
 import { db } from "../src/db/client";
 import { runMigrations } from "../src/db/migrate";
 
 const DEVICE_SECRET = "a".repeat(43);
 const WRONG_DEVICE_SECRET = "b".repeat(43);
+const ENROLLED_DEVICE_SECRET = "c".repeat(43);
 
 test("a visible device ID cannot authenticate without its separate device secret", () => {
   runMigrations();
@@ -23,6 +26,70 @@ test("a visible device ID cannot authenticate without its separate device secret
   try {
     assert.equal(
       authenticateOrCreateDeviceUserWithName(deviceId, DEVICE_SECRET).id,
+      user.id,
+    );
+    assert.throws(
+      () => authenticateOrCreateDeviceUserWithName(deviceId, WRONG_DEVICE_SECRET),
+      /Device credential is invalid/,
+    );
+  } finally {
+    deleteUserData(user.id);
+  }
+});
+
+test("the device auth endpoint rejects a copied Device ID without its secret", async () => {
+  runMigrations();
+  const deviceId = `security-route-${nanoid()}`;
+  let userId: string | null = null;
+
+  try {
+    await withApi(async (baseUrl) => {
+      const registered = await postDeviceAuth(baseUrl, {
+        deviceId,
+        deviceSecret: DEVICE_SECRET,
+        deviceName: "Security route test",
+      });
+      assert.equal(registered.status, 200);
+      const registeredBody = (await registered.json()) as { user: { id: string } };
+      userId = registeredBody.user.id;
+
+      const copiedIdAttempt = await postDeviceAuth(baseUrl, {
+        deviceId,
+        deviceSecret: WRONG_DEVICE_SECRET,
+      });
+      assert.equal(copiedIdAttempt.status, 401);
+
+      const missingSecretAttempt = await postDeviceAuth(baseUrl, { deviceId });
+      assert.equal(missingSecretAttempt.status, 401);
+
+      const legitimateRetry = await postDeviceAuth(baseUrl, {
+        deviceId,
+        deviceSecret: DEVICE_SECRET,
+      });
+      assert.equal(legitimateRetry.status, 200);
+    });
+  } finally {
+    if (userId) {
+      deleteUserData(userId);
+    }
+  }
+});
+
+test("an authenticated legacy device session enrolls a secret during refresh", () => {
+  runMigrations();
+  const deviceId = `legacy-device-${nanoid()}`;
+  const user = authenticateOrCreateDeviceUserWithName(deviceId, DEVICE_SECRET, "Legacy device");
+
+  try {
+    db.prepare("UPDATE users SET device_secret_hash = NULL WHERE id = ?").run(user.id);
+    const initial = createSession(user);
+    refreshSession(initial.refreshToken, {
+      deviceId,
+      deviceSecret: ENROLLED_DEVICE_SECRET,
+    });
+
+    assert.equal(
+      authenticateOrCreateDeviceUserWithName(deviceId, ENROLLED_DEVICE_SECRET).id,
       user.id,
     );
     assert.throws(
@@ -65,6 +132,10 @@ test("pairing codes are cryptographic, stable, and explicitly regeneratable", ()
     assert.equal(consumeTransferToken(transfer.token).user.id, user.id);
     assert.equal(createTransferToken(user.id).token, transfer.token);
 
+    const session = createSession(user);
+    refreshSession(session.refreshToken);
+    assert.equal(createTransferToken(user.id).token, transfer.token);
+
     const regenerated = regenerateTransferToken(user.id);
     assert.notEqual(regenerated.token, transfer.token);
     assert.throws(() => consumeTransferToken(transfer.token), /does not exist or is no longer valid/);
@@ -84,4 +155,29 @@ function deleteUserData(userId: string) {
   db.prepare("DELETE FROM refresh_tokens WHERE user_id = ?").run(userId);
   db.prepare("DELETE FROM transfer_tokens WHERE user_id = ?").run(userId);
   db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+}
+
+async function withApi(run: (baseUrl: string) => Promise<void>) {
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Test API did not expose a TCP address");
+  }
+
+  try {
+    await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+}
+
+function postDeviceAuth(baseUrl: string, body: Record<string, unknown>) {
+  return fetch(`${baseUrl}/auth/device`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }

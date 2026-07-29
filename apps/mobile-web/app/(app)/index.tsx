@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { buildForecastAnalysis, type Category, type CreateCategoryInput, type Transaction } from "@spending-tracker/shared";
 import { Card, FormModal, Metric, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
-import { api } from "../../src/lib/api";
+import { deviceBackend as api } from "../../src/backend/device-backend";
 import { combineDateAndTime, formatDateLabel, formatDateTimeLabel, formatMoney, toDateInputValue } from "../../src/lib/date";
 import { buildSpendingReport, budgetMonthsForRange, resolveSummaryRange } from "../../src/lib/summary-range";
 import { TransactionForm } from "../../src/components/transaction-form";
@@ -134,31 +134,7 @@ export default function DashboardScreen() {
 
   const countdownQuery = useQuery({
     queryKey: ["countdown", userId],
-    queryFn: async () => {
-      const remoteCountdown = await api.countdown();
-      const countdownState = countdownStore.getState();
-      const localCountdown = countdownState.countdownsByUser[userId];
-      const serverStateKnown = countdownState.serverBackedByUser[userId];
-
-      if (!remoteCountdown && localCountdown && !serverStateKnown) {
-        const migratedCountdown = await api.upsertCountdown({
-          title: localCountdown.title,
-          targetAt: localCountdown.targetAt,
-          ...(localCountdown.createdAt ? { createdAt: localCountdown.createdAt } : {}),
-        });
-        countdownState.saveCountdown(userId, migratedCountdown);
-        countdownState.markServerBacked(userId);
-        return migratedCountdown;
-      }
-
-      if (remoteCountdown) {
-        countdownState.saveCountdown(userId, remoteCountdown);
-      } else {
-        countdownState.removeCountdown(userId);
-      }
-      countdownState.markServerBacked(userId);
-      return remoteCountdown;
-    },
+    queryFn: api.countdown,
   });
 
   const saveCountdownMutation = useMutation({

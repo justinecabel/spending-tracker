@@ -92,18 +92,23 @@ export function TransferOutPanel() {
 export function TransferInPanel({
   onSuccess,
   rememberedLinkedProfiles,
+  staleLinkedProfileUserId,
   onUseRememberedProfile,
   onForgetRememberedProfile,
+  onDismissStaleLinkedProfile,
 }: {
   onSuccess: (session: AuthResponse) => void;
   rememberedLinkedProfiles: StoredProfileSession[];
+  staleLinkedProfileUserId?: string | null;
   onUseRememberedProfile: (userId: string) => void;
   onForgetRememberedProfile: (userId: string) => void;
+  onDismissStaleLinkedProfile?: () => void;
 }) {
   const [manualToken, setManualToken] = useState("");
   const [showInvalidCodeModal, setShowInvalidCodeModal] = useState(false);
   const [revealedDeleteUserId, setRevealedDeleteUserId] = useState<string | null>(null);
   const [hoveredUserId, setHoveredUserId] = useState<string | null>(null);
+  const staleProfile = rememberedLinkedProfiles.find((profile) => profile.user.id === staleLinkedProfileUserId) ?? null;
   const consumeMutation = useMutation({
     mutationFn: (token: string) => api.consumeTransferToken({ token }),
     onSuccess,
@@ -187,6 +192,34 @@ export function TransferInPanel({
         <PillButton label={consumeMutation.isPending ? "Joining..." : "Join account"} onPress={() => handleToken(manualToken)} />
       </View>
       {consumeMutation.error && !showInvalidCodeModal ? <Text style={styles.error}>{consumeMutation.error.message}</Text> : null}
+
+      <Modal transparent visible={Boolean(staleProfile)} animationType="fade" onRequestClose={onDismissStaleLinkedProfile}>
+        <View style={styles.modalScrim}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Saved Sync Code is no longer valid</Text>
+            <Text style={styles.modalBody}>
+              The saved Sync Code profile{staleProfile?.user.name ? ` for ${staleProfile.user.name}` : ""} can no longer be restored.
+              It may have been regenerated or its saved session expired. You can delete this saved sync from this device and enter a new code.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable style={styles.secondaryButton} onPress={onDismissStaleLinkedProfile}>
+                <Text style={styles.secondaryButtonText}>Keep saved sync</Text>
+              </Pressable>
+              <Pressable
+                style={styles.primaryButton}
+                onPress={() => {
+                  if (staleProfile) {
+                    onForgetRememberedProfile(staleProfile.user.id);
+                  }
+                  onDismissStaleLinkedProfile?.();
+                }}
+              >
+                <Text style={styles.primaryButtonText}>Delete saved sync</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal transparent visible={showInvalidCodeModal} animationType="fade" onRequestClose={() => setShowInvalidCodeModal(false)}>
         <View style={styles.modalScrim}>

@@ -6,6 +6,12 @@ Monorepo for a cross-platform spending tracker:
 - `apps/api`: Node + Express API with SQLite persistence
 - `packages/shared`: Shared types, validation, and reporting helpers
 
+The app uses a local-first data path. Screens fetch through the on-device
+backend in `apps/mobile-web/src/backend/device-backend.ts`; it persists pulled
+records on the device and serves them when remote storage is offline. The Node
+API is the default remote-storage adapter, while queued device changes are
+replayed when it becomes reachable.
+
 ## Quick start
 
 ```bash
@@ -14,7 +20,7 @@ pnpm --filter @spending-tracker/api db:init
 pnpm dev
 ```
 
-## Standalone backend
+## Standalone remote storage
 
 The API is a standalone Node service. You can run it without the Expo app:
 

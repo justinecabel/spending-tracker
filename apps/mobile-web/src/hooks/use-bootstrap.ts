@@ -7,8 +7,11 @@ export function useBootstrapSession() {
   const refreshToken = sessionStore((state) => state.refreshToken);
   const accessToken = sessionStore((state) => state.accessToken);
   const activeProfile = sessionStore((state) => state.activeProfile);
+  const activeLinkedProfileUserId = sessionStore((state) => state.activeLinkedProfileUserId);
   const setSession = sessionStore((state) => state.setSession);
   const clearSession = sessionStore((state) => state.clearSession);
+  const markLinkedProfileStale = sessionStore((state) => state.markLinkedProfileStale);
+  const staleLinkedProfileUserId = sessionStore((state) => state.staleLinkedProfileUserId);
 
   useEffect(() => {
     if (accessToken || !refreshToken) {
@@ -32,6 +35,9 @@ export function useBootstrapSession() {
             retryTimer = setTimeout(restore, 4_000);
             return;
           }
+          if (activeProfile === "linked" && activeLinkedProfileUserId) {
+            markLinkedProfileStale(activeLinkedProfileUserId);
+          }
           clearSession();
         });
     };
@@ -41,5 +47,7 @@ export function useBootstrapSession() {
       active = false;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [accessToken, activeProfile, clearSession, refreshToken, setSession]);
+  }, [accessToken, activeLinkedProfileUserId, activeProfile, clearSession, markLinkedProfileStale, refreshToken, setSession]);
+
+  return { staleLinkedProfileUserId };
 }

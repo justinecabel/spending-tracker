@@ -9,6 +9,7 @@ type OfflineQueueState = {
   remove: (id: string) => void;
   removeByClientId: (clientId: string) => void;
   replaceCategoryId: (fromCategoryId: string, toCategoryId: string) => void;
+  replaceDebtId: (fromDebtId: string, toDebtId: string) => void;
   clear: () => void;
 };
 
@@ -48,6 +49,23 @@ export const offlineQueueStore = create<OfflineQueueState>()(
                 : {}),
             };
             return { ...mutation, payload: nextPayload };
+          }),
+        })),
+      replaceDebtId: (fromDebtId, toDebtId) =>
+        set((state) => ({
+          mutations: state.mutations.map((mutation) => {
+            if (mutation.entity !== "debt") {
+              return mutation;
+            }
+            const payload = mutation.payload as { id?: string; temporaryId?: string };
+            return {
+              ...mutation,
+              payload: {
+                ...payload,
+                ...(payload.id === fromDebtId ? { id: toDebtId } : {}),
+                ...(payload.temporaryId === fromDebtId ? { temporaryId: toDebtId } : {}),
+              },
+            };
           }),
         })),
       clear: () => set({ mutations: [] }),

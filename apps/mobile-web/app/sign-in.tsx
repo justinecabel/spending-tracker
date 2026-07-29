@@ -9,7 +9,13 @@ import { getDeviceId } from "../src/lib/device";
 import { sessionStore } from "../src/state/session";
 import { theme } from "../src/theme";
 
-export default function SignInScreen() {
+export default function SignInScreen({
+  staleLinkedProfileUserId,
+  onDismissStaleLinkedProfile,
+}: {
+  staleLinkedProfileUserId?: string | null;
+  onDismissStaleLinkedProfile?: () => void;
+}) {
   const setSession = sessionStore((state) => state.setSession);
   const activateProfile = sessionStore((state) => state.activateProfile);
   const linkedProfiles = sessionStore((state) => state.linkedProfiles);
@@ -68,8 +74,10 @@ export default function SignInScreen() {
       <Card style={styles.authCard}>
         <TransferInPanel
           rememberedLinkedProfiles={linkedProfiles}
+          staleLinkedProfileUserId={staleLinkedProfileUserId}
           onUseRememberedProfile={(userId) => activateProfile("linked", userId)}
           onForgetRememberedProfile={removeLinkedProfile}
+          onDismissStaleLinkedProfile={onDismissStaleLinkedProfile}
           onSuccess={(session) => setSession(session, "linked")}
         />
       </Card>
