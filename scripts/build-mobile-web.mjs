@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +8,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
 const appDirectory = resolve(projectRoot, "apps", "mobile-web");
 const buildId = process.env.EXPO_PUBLIC_BUILD_ID ?? process.env.GITHUB_SHA ?? `local-${Date.now()}`;
-const expoCli = resolve(projectRoot, "node_modules", "expo", "bin", "cli");
+// Resolve from the web workspace, where pnpm links Expo in both local and CI
+// installs. The repository root does not necessarily have an Expo binary.
+const appRequire = createRequire(resolve(appDirectory, "package.json"));
+const expoCli = appRequire.resolve("expo/bin/cli");
 
 // The build identifier is compiled into the bundle, so Metro's transform cache
 // must not reuse a bundle created for an earlier identifier.
