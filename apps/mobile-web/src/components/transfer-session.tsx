@@ -97,7 +97,7 @@ export function TransferInPanel({
   onForgetRememberedProfile,
   onDismissStaleLinkedProfile,
 }: {
-  onSuccess: (session: AuthResponse) => void;
+  onSuccess: (session: AuthResponse, pairingCode: string) => void;
   rememberedLinkedProfiles: StoredProfileSession[];
   staleLinkedProfileUserId?: string | null;
   onUseRememberedProfile: (userId: string) => void;
@@ -111,7 +111,7 @@ export function TransferInPanel({
   const staleProfile = rememberedLinkedProfiles.find((profile) => profile.user.id === staleLinkedProfileUserId) ?? null;
   const consumeMutation = useMutation({
     mutationFn: (token: string) => api.consumeTransferToken({ token }),
-    onSuccess,
+    onSuccess: (session, pairingCode) => onSuccess(session, pairingCode),
     onError: () => {
       setShowInvalidCodeModal(true);
     },

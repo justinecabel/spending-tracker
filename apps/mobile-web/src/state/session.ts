@@ -3,7 +3,13 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { AuthResponse, ProfileSlot, User } from "@spending-tracker/shared";
 import { storage } from "../lib/storage";
 
-type StoredProfileSession = Pick<AuthResponse, "accessToken" | "refreshToken" | "user">;
+// A linked profile keeps the pairing credential on this device as well as its
+// rotating session. The code is an authentication secret, so it is never
+// displayed automatically or transmitted anywhere except to this API when a
+// previously saved linked session must be restored.
+type StoredProfileSession = Pick<AuthResponse, "accessToken" | "refreshToken" | "user"> & {
+  pairingCode?: string;
+};
 const MAX_LINKED_PROFILES = 5;
 
 type SessionState = {
@@ -16,7 +22,7 @@ type SessionState = {
   deviceProfile: StoredProfileSession | null;
   linkedProfiles: StoredProfileSession[];
   hydrated: boolean;
-  setSession: (payload: AuthResponse, slot?: ProfileSlot) => void;
+  setSession: (payload: AuthResponse, slot?: ProfileSlot, pairingCode?: string) => void;
   setUser: (user: User) => void;
   updateDeviceProfileUser: (user: User) => void;
   activateProfile: (slot: ProfileSlot, linkedProfileUserId?: string) => void;
@@ -78,10 +84,18 @@ export const sessionStore = create<SessionState>()(
       staleLinkedProfileUserId: null,
       deviceProfile: null,
       linkedProfiles: [],
-      hydrated: true,
-      setSession: (payload, slot = "device") =>
+      hydrated: false,
+      setSession: (payload, slot = "device", pairingCode) =>
         set((state) => {
-          const nextLinkedProfiles = slot === "linked" ? upsertLinkedProfile(state.linkedProfiles, payload) : state.linkedProfiles;
+          const existingLinkedProfile =
+            slot === "linked" ? state.linkedProfiles.find((profile) => profile.user.id === payload.user.id) : null;
+          const nextLinkedProfiles =
+            slot === "linked"
+              ? upsertLinkedProfile(state.linkedProfiles, {
+                  ...payload,
+                  pairingCode: pairingCode ?? existingLinkedProfile?.pairingCode,
+                })
+              : state.linkedProfiles;
           return withActiveState({
             ...state,
             staleLinkedProfileUserId:

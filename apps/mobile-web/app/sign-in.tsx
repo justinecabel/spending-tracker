@@ -78,7 +78,7 @@ export default function SignInScreen({
           onUseRememberedProfile={(userId) => activateProfile("linked", userId)}
           onForgetRememberedProfile={removeLinkedProfile}
           onDismissStaleLinkedProfile={onDismissStaleLinkedProfile}
-          onSuccess={(session) => setSession(session, "linked")}
+          onSuccess={(session, pairingCode) => setSession(session, "linked", pairingCode)}
         />
       </Card>
 

@@ -40,6 +40,107 @@ export const realtimeUrl = apiUrl.replace(/^http/i, "ws");
 
 let refreshPromise: Promise<string | null> | null = null;
 
+function isNetworkError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return message.includes("network") || message.includes("fetch") || message.includes("abort");
+}
+
+async function refreshStoredToken(refreshToken: string) {
+  const response = await fetch(`${apiUrl}/auth/refresh`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ refreshToken, ...(await ensureDeviceCredentials()) }),
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message ?? `Refresh token failed (${response.status})`);
+  }
+
+  return (await response.json()) as AuthResponse;
+}
+
+async function restoreFromSavedProfile() {
+  const state = sessionStore.getState();
+  const slot = (state.activeProfile ?? "device") as ProfileSlot;
+
+  if (slot === "linked") {
+    const linkedProfile = state.linkedProfiles.find((profile) => profile.user.id === state.activeLinkedProfileUserId);
+    const pairingCode = linkedProfile?.pairingCode;
+    if (!pairingCode) {
+      return null;
+    }
+
+    const response = await fetch(`${apiUrl}/auth/transfer-consume`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: pairingCode, deviceId: await ensureDeviceId() }),
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const session = (await response.json()) as AuthResponse;
+    sessionStore.getState().setSession(session, "linked", pairingCode);
+    return session;
+  }
+
+  const deviceCredential = await ensureDeviceCredentials();
+  const response = await fetch(`${apiUrl}/auth/device`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...deviceCredential, deviceName: await getLocalDeviceLabel() }),
+  });
+  if (!response.ok) {
+    return null;
+  }
+
+  const session = (await response.json()) as AuthResponse;
+  sessionStore.getState().setSession(session, "device");
+  return session;
+}
+
+async function restorePersistedSession() {
+  const state = sessionStore.getState();
+  if (!state.refreshToken) {
+    state.clearSession();
+    return null;
+  }
+
+  try {
+    const session = await refreshStoredToken(state.refreshToken);
+    state.setSession(session, (state.activeProfile ?? "device") as ProfileSlot);
+    return session;
+  } catch (error) {
+    if (isNetworkError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    const session = await restoreFromSavedProfile();
+    if (session) {
+      return session;
+    }
+  } catch (error) {
+    if (isNetworkError(error)) {
+      throw error;
+    }
+  }
+
+  const latest = sessionStore.getState();
+  if (latest.activeProfile === "linked" && latest.activeLinkedProfileUserId) {
+    latest.markLinkedProfileStale(latest.activeLinkedProfileUserId);
+  }
+  latest.clearSession();
+  return null;
+}
+
 async function performRequest(path: string, init?: RequestInit) {
   const token = sessionStore.getState().accessToken;
   return fetch(`${apiUrl}${path}`, {
@@ -59,33 +160,8 @@ async function refreshAccessToken() {
   }
 
   refreshPromise = (async () => {
-    const { refreshToken, activeProfile, activeLinkedProfileUserId, markLinkedProfileStale } = sessionStore.getState();
-    if (!refreshToken) {
-      sessionStore.getState().clearSession();
-      return null;
-    }
-
-    const deviceCredential = await ensureDeviceCredentials();
-    const response = await fetch(`${apiUrl}/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ refreshToken, ...deviceCredential }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401 && activeProfile === "linked" && activeLinkedProfileUserId) {
-        markLinkedProfileStale(activeLinkedProfileUserId);
-      }
-      sessionStore.getState().clearSession();
-      return null;
-    }
-
-    const session = (await response.json()) as AuthResponse;
-    sessionStore.getState().setSession(session, (activeProfile ?? "device") as ProfileSlot);
-    return session.accessToken;
+    const session = await restorePersistedSession();
+    return session?.accessToken ?? null;
   })();
 
   try {
@@ -143,11 +219,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ...input, deviceId: await ensureDeviceId() }),
     }),
-  refreshToken: async (refreshToken: string) =>
-    request<AuthResponse>("/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refreshToken, ...(await ensureDeviceCredentials()) }),
-    }),
+  refreshToken: refreshStoredToken,
+  restorePersistedSession,
   me: () => request<{ user: AuthResponse["user"] }>("/me"),
   updateMe: (input: UpdateUserPreferencesInput) =>
     request<{ user: AuthResponse["user"] }>("/me", {

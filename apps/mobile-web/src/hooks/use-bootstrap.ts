@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { ProfileSlot } from "@spending-tracker/shared";
+import type { AuthResponse } from "@spending-tracker/shared";
 import { api } from "../lib/api";
 import { sessionStore } from "../state/session";
 
@@ -8,9 +8,8 @@ export function useBootstrapSession() {
   const accessToken = sessionStore((state) => state.accessToken);
   const activeProfile = sessionStore((state) => state.activeProfile);
   const activeLinkedProfileUserId = sessionStore((state) => state.activeLinkedProfileUserId);
+  const linkedProfiles = sessionStore((state) => state.linkedProfiles);
   const setSession = sessionStore((state) => state.setSession);
-  const clearSession = sessionStore((state) => state.clearSession);
-  const markLinkedProfileStale = sessionStore((state) => state.markLinkedProfileStale);
   const staleLinkedProfileUserId = sessionStore((state) => state.staleLinkedProfileUserId);
 
   useEffect(() => {
@@ -18,36 +17,66 @@ export function useBootstrapSession() {
       return;
     }
 
-    let active = true;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const restore = () => {
       api
-        .refreshToken(refreshToken)
-        .then((session) => {
-          if (active) {
-            setSession(session, (activeProfile ?? "device") as ProfileSlot);
-          }
-        })
+        .restorePersistedSession()
         .catch((error) => {
           const message = error instanceof Error ? error.message.toLowerCase() : "";
           if (message.includes("network") || message.includes("fetch") || message.includes("abort")) {
             retryTimer = setTimeout(restore, 4_000);
             return;
           }
-          if (activeProfile === "linked" && activeLinkedProfileUserId) {
-            markLinkedProfileStale(activeLinkedProfileUserId);
-          }
-          clearSession();
+          // Authentication failures are handled by restorePersistedSession,
+          // including recovery with the saved Device-ID or pairing credential.
         });
     };
 
     restore();
     return () => {
-      active = false;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [accessToken, activeLinkedProfileUserId, activeProfile, clearSession, markLinkedProfileStale, refreshToken, setSession]);
+  }, [accessToken, refreshToken]);
+
+  // Profiles saved by older versions only had a rotating session token. While
+  // that session is still valid, securely save its stable sync credential so a
+  // later PWA restart can recover without asking the user to type it again.
+  const activeLinkedProfile = linkedProfiles.find((profile) => profile.user.id === activeLinkedProfileUserId);
+  useEffect(() => {
+    if (!accessToken || activeProfile !== "linked" || !activeLinkedProfile || activeLinkedProfile.pairingCode) {
+      return;
+    }
+
+    let cancelled = false;
+    void api
+      .createTransferToken()
+      .then(({ pairingCode }) => {
+        if (cancelled) {
+          return;
+        }
+        const current = sessionStore.getState();
+        const profile = current.linkedProfiles.find((item) => item.user.id === activeLinkedProfile.user.id);
+        if (!profile) {
+          return;
+        }
+        const payload: AuthResponse = {
+          accessToken: profile.accessToken,
+          refreshToken: profile.refreshToken,
+          user: profile.user,
+        };
+        setSession(payload, "linked", pairingCode);
+      })
+      .catch(() => {
+        // If the current session cannot make an authenticated request, normal
+        // refresh recovery handles it. Do not mark a still-valid saved profile
+        // stale merely because this optional migration could not run.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, activeLinkedProfile, activeProfile, setSession]);
 
   return { staleLinkedProfileUserId };
 }
