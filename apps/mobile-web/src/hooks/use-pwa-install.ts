@@ -76,14 +76,21 @@ export function usePwaInstall(pwaTheme: PwaTheme = { surface: "#FFFDF8" }) {
     const onDisplayChange = (event: MediaQueryListEvent) => {
       setIsInstalled(event.matches);
     };
+    const captureBeforeClose = () => {
+      // Keep the latest device credential and rotated session available to a
+      // standalone PWA when the operating system closes its webview.
+      capturePwaStorageHandoff();
+    };
 
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
+    window.addEventListener("pagehide", captureBeforeClose);
     displayMode?.addEventListener?.("change", onDisplayChange);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);
+      window.removeEventListener("pagehide", captureBeforeClose);
       displayMode?.removeEventListener?.("change", onDisplayChange);
     };
   }, []);

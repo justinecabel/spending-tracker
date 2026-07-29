@@ -294,15 +294,39 @@ export const storage = {
     return preparePwaStorage().then(() => window.localStorage.getItem(name));
   },
   setItem(name: string, value: string) {
-    if (typeof window !== "undefined") {
-      return preparePwaStorage().then(() => window.localStorage.setItem(name, value));
+    if (typeof window === "undefined") {
+      return Promise.resolve();
     }
-    return Promise.resolve();
+
+    // Credentials and rotated refresh tokens must survive an immediate PWA
+    // close. Do not defer their write behind service-worker handoff setup.
+    // Reapply the value after preparation in case that setup restores an older
+    // handoff snapshot into this storage container.
+    const prepared = preparePwaStorage();
+    try {
+      window.localStorage.setItem(name, value);
+    } catch {
+      // The prepared retry below covers storage that becomes available late.
+    }
+    return prepared.then(
+      () => window.localStorage.setItem(name, value),
+      () => undefined,
+    );
   },
   removeItem(name: string) {
-    if (typeof window !== "undefined") {
-      return preparePwaStorage().then(() => window.localStorage.removeItem(name));
+    if (typeof window === "undefined") {
+      return Promise.resolve();
     }
-    return Promise.resolve();
+
+    const prepared = preparePwaStorage();
+    try {
+      window.localStorage.removeItem(name);
+    } catch {
+      // The prepared retry below covers storage that becomes available late.
+    }
+    return prepared.then(
+      () => window.localStorage.removeItem(name),
+      () => undefined,
+    );
   },
 };

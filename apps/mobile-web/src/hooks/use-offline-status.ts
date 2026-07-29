@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 const BUILD_ID = process.env.EXPO_PUBLIC_BUILD_ID ?? "development";
 const BUILD_CHECK_INTERVAL_MS = 60_000;
+// Metro development sessions do not have a deployable build identity. Checking
+// their generated build-info file would therefore always look like an update.
+const IS_PRODUCTION_BUILD = BUILD_ID !== "development";
 
 type BuildInfo = { id?: string };
 
@@ -58,10 +61,13 @@ export function useOfflineStatus({ autoApplyWaitingUpdate = false }: { autoApply
         // Offline and captive-network responses should not show an update prompt.
       }
     };
-    void checkForNewBuild();
-    const buildCheckTimer = window.setInterval(() => void checkForNewBuild(), BUILD_CHECK_INTERVAL_MS);
+    let buildCheckTimer: number | undefined;
+    if (IS_PRODUCTION_BUILD) {
+      void checkForNewBuild();
+      buildCheckTimer = window.setInterval(() => void checkForNewBuild(), BUILD_CHECK_INTERVAL_MS);
+    }
 
-    if ("serviceWorker" in navigator && window.isSecureContext) {
+    if (IS_PRODUCTION_BUILD && "serviceWorker" in navigator && window.isSecureContext) {
       navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
       navigator.serviceWorker
         .register(new URL("sw.js", document.baseURI).toString(), { scope: new URL("./", document.baseURI).pathname })
@@ -107,7 +113,9 @@ export function useOfflineStatus({ autoApplyWaitingUpdate = false }: { autoApply
       window.removeEventListener("online", updateNetworkState);
       window.removeEventListener("offline", updateNetworkState);
       cancelled = true;
-      window.clearInterval(buildCheckTimer);
+      if (buildCheckTimer !== undefined) {
+        window.clearInterval(buildCheckTimer);
+      }
     };
   }, [autoApplyWaitingUpdate]);
 
