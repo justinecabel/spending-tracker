@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Modal, PanResponder, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Animated, Modal, PanResponder, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Line, Polygon, Polyline, Rect } from "react-native-svg";
 import { buildDebtPaymentHealth, buildForecastAnalysis, type Debt, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
@@ -44,6 +44,7 @@ export default function ReportsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [cycleOffset, setCycleOffset] = useState(0);
+  const cycleTransition = useRef(new Animated.Value(0)).current;
   const graphAnchorRef = useRef<any>(null);
   const graphViewportTopRef = useRef<number | null>(null);
   const graphScrollContainerRef = useRef<HTMLElement | null>(null);
@@ -68,16 +69,33 @@ export default function ReportsScreen() {
     graphViewportTopRef.current = node.getBoundingClientRect().top;
     graphScrollContainerRef.current = findScrollContainer(node);
   }, []);
+  const animateCycleChange = useCallback((enterFrom: "left" | "right") => {
+    cycleTransition.stopAnimation();
+    cycleTransition.setValue(enterFrom === "left" ? -56 : 56);
+    requestAnimationFrame(() => {
+      Animated.timing(cycleTransition, {
+        toValue: 0,
+        duration: 240,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [cycleTransition]);
   const showPreviousCycle = useCallback(() => {
     if (canNavigateCycles) {
       captureGraphPosition();
+      // A rightward gesture reveals the previous period from the left, as in
+      // a native carousel.
+      animateCycleChange("left");
       setCycleOffset((value) => value - 1);
     }
-  }, [canNavigateCycles, captureGraphPosition]);
+  }, [animateCycleChange, canNavigateCycles, captureGraphPosition]);
   const showNextCycle = useCallback(() => {
-    captureGraphPosition();
-    setCycleOffset((value) => Math.min(0, value + 1));
-  }, [captureGraphPosition]);
+    if (cycleOffset < 0) {
+      captureGraphPosition();
+      animateCycleChange("right");
+      setCycleOffset((value) => Math.min(0, value + 1));
+    }
+  }, [animateCycleChange, captureGraphPosition, cycleOffset]);
   const cyclePanResponder = useMemo(
     () => {
       const isHorizontalSwipe = (_: unknown, gesture: { dx: number; dy: number }) => (
@@ -91,9 +109,9 @@ export default function ReportsScreen() {
         onMoveShouldSetPanResponderCapture: isHorizontalSwipe,
         onPanResponderTerminationRequest: () => false,
         onPanResponderRelease: (_, gesture) => {
-          if (gesture.dx < -50) {
+          if (gesture.dx > 50) {
             showPreviousCycle();
-          } else if (gesture.dx > 50 && cycleOffset < 0) {
+          } else if (gesture.dx < -50 && cycleOffset < 0) {
             showNextCycle();
           }
         },
@@ -103,7 +121,8 @@ export default function ReportsScreen() {
   );
   useEffect(() => {
     setCycleOffset(0);
-  }, [customFrom, customTo, smartPaydays, summaryMode]);
+    cycleTransition.setValue(0);
+  }, [customFrom, customTo, cycleTransition, smartPaydays, summaryMode]);
   const range = resolveSummaryRange({
     mode: summaryMode,
     customFrom,
@@ -227,12 +246,14 @@ export default function ReportsScreen() {
     }
     return true;
   });
-  const transactions = [...offlineDrafts, ...(transactionsQuery.data ?? [])].sort(
+  const transactions = [...new Map([...offlineDrafts, ...(transactionsQuery.data ?? [])].map((transaction) => [transaction.id, transaction])).values()].sort(
     (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
   );
   const historyTransactions = [
-    ...drafts.filter((transaction) => transaction.userId === userId),
-    ...(historyQuery.data ?? cachedHistory ?? []),
+    ...new Map(
+      [...drafts.filter((transaction) => transaction.userId === userId), ...(historyQuery.data ?? cachedHistory ?? [])]
+        .map((transaction) => [transaction.id, transaction]),
+    ).values(),
   ];
   const categories = categoriesQuery.data ?? cachedCategories ?? [];
   const budgets = budgetsQuery.data ?? [];
@@ -356,9 +377,13 @@ export default function ReportsScreen() {
         />
         <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
           <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
-            <View
+            <Animated.View
               ref={graphAnchorRef}
-              style={Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : undefined}
+              style={[
+                styles.forecastCarouselSlide,
+                { transform: [{ translateX: cycleTransition }] },
+                Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : undefined,
+              ]}
               {...cyclePanResponder.panHandlers}
             >
               <ForecastChart
@@ -372,9 +397,9 @@ export default function ReportsScreen() {
                 showNextCycle={showNextCycle}
                 showSwipeHint={supportsTouch && canNavigateCycles}
               />
-            </View>
+            </Animated.View>
             {!hasTransactions ? (
-              <Text style={styles.emptyText}>No spending recorded in this period. Swipe right or use Next to return.</Text>
+              <Text style={styles.emptyText}>No spending recorded in this period. Swipe left to return.</Text>
             ) : null}
             {hasTransactions && useSideInsights && showDetails ? <View style={styles.nerdGrid}>{belowForecastTiles}</View> : null}
           </View>
@@ -831,7 +856,7 @@ function ForecastChart({
           </Pressable>
         </>
       ) : null}
-      {showSwipeHint ? <Text style={styles.swipeHint}>Swipe left for the previous cycle · swipe right to return</Text> : null}
+      {showSwipeHint ? <Text style={styles.swipeHint}>Swipe right for the previous cycle · swipe left to return</Text> : null}
       <View
         style={styles.forecastPlot}
         onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}
@@ -1270,6 +1295,9 @@ function formatHourLabel(hour: number) {
 }
 
 const styles = StyleSheet.create({
+  forecastCarouselSlide: {
+    width: "100%",
+  },
   cycleButton: {
     alignItems: "center",
     backgroundColor: theme.colors.field,

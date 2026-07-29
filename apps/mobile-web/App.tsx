@@ -375,7 +375,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 16,
     backgroundColor: theme.colors.card,
   },
   syncBanner: {

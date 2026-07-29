@@ -73,6 +73,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Build metadata is deliberately never cached. The app polls it to detect
+  // deployments that changed only the JavaScript bundle, not this worker.
+  if (url.pathname.endsWith("/build-info.json")) {
+    event.respondWith(fetch(request, { cache: "no-store" }));
+    return;
+  }
+
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)

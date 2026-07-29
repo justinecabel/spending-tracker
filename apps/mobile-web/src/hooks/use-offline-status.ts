@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
+const BUILD_ID = process.env.EXPO_PUBLIC_BUILD_ID ?? "development";
+const BUILD_CHECK_INTERVAL_MS = 60_000;
+
+type BuildInfo = { id?: string };
+
 export function useOfflineStatus({ autoApplyWaitingUpdate = false }: { autoApplyWaitingUpdate?: boolean } = {}) {
   const [isOnline, setIsOnline] = useState(true);
   const [hasCachedShell, setHasCachedShell] = useState(false);
@@ -33,6 +38,28 @@ export function useOfflineStatus({ autoApplyWaitingUpdate = false }: { autoApply
     updateNetworkState();
     window.addEventListener("online", updateNetworkState);
     window.addEventListener("offline", updateNetworkState);
+
+    let cancelled = false;
+    const checkForNewBuild = async () => {
+      if (!navigator.onLine || cancelled) {
+        return;
+      }
+      try {
+        // The changing query string also avoids stale responses from an older
+        // service worker that predates the build-info cache exclusion.
+        const buildInfoUrl = new URL(`build-info.json?check=${Date.now()}`, document.baseURI);
+        const response = await fetch(buildInfoUrl, { cache: "no-store" });
+        const build = (await response.json()) as BuildInfo;
+        if (!cancelled && build.id && build.id !== BUILD_ID) {
+          setUpdateAvailable(true);
+          void registrationRef.current?.update();
+        }
+      } catch {
+        // Offline and captive-network responses should not show an update prompt.
+      }
+    };
+    void checkForNewBuild();
+    const buildCheckTimer = window.setInterval(() => void checkForNewBuild(), BUILD_CHECK_INTERVAL_MS);
 
     if ("serviceWorker" in navigator && window.isSecureContext) {
       navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
@@ -79,6 +106,8 @@ export function useOfflineStatus({ autoApplyWaitingUpdate = false }: { autoApply
       navigator.serviceWorker?.removeEventListener("controllerchange", handleControllerChange);
       window.removeEventListener("online", updateNetworkState);
       window.removeEventListener("offline", updateNetworkState);
+      cancelled = true;
+      window.clearInterval(buildCheckTimer);
     };
   }, [autoApplyWaitingUpdate]);
 

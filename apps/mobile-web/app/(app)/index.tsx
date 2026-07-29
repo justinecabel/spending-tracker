@@ -46,9 +46,8 @@ export default function DashboardScreen() {
     smartPaydays,
   });
   const queryClient = useQueryClient();
-  const addDraft = draftTransactionsStore((state) => state.addDraft);
-  const drafts = draftTransactionsStore((state) => state.drafts);
   const enqueue = offlineQueueStore((state) => state.enqueue);
+  const drafts = draftTransactionsStore((state) => state.drafts);
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
   const transactionCacheId = transactionScopeKey(userId, `summary:${range.key}`);
   const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]);
@@ -391,79 +390,22 @@ export default function DashboardScreen() {
 
   async function handleCreateTransaction(input: Parameters<typeof api.createTransaction>[0]) {
     const clientId = input.clientId ?? `client-${Date.now()}`;
-    const payload = {
-      ...input,
-      clientId,
-    };
-    if (isOfflineOrNetworkError()) {
-      addDraft({
-        userId: user?.id ?? "offline-user",
-        categoryId: payload.categoryId,
-        amount: payload.amount,
-        kind: payload.kind,
-        occurredAt: payload.occurredAt,
-        note: payload.note ?? null,
-        merchant: payload.merchant ?? null,
-        clientId,
-      });
-      enqueue({
-        id: nanoid(),
-        userId,
-        entity: "transaction",
-        action: "create",
-        payload,
-        createdAt: new Date().toISOString(),
-      });
-      return;
-    }
-
-    try {
-      await createTransaction.mutateAsync(payload);
-    } catch (error) {
-      if (isOfflineOrNetworkError(error)) {
-        addDraft({
-          userId: user?.id ?? "offline-user",
-          categoryId: payload.categoryId,
-          amount: payload.amount,
-          kind: payload.kind,
-          occurredAt: payload.occurredAt,
-          note: payload.note ?? null,
-          merchant: payload.merchant ?? null,
-          clientId,
-        });
-        enqueue({
-          id: nanoid(),
-          userId,
-          entity: "transaction",
-          action: "create",
-          payload,
-          createdAt: new Date().toISOString(),
-        });
-        return;
-      }
-      throw error;
-    }
+    await createTransaction.mutateAsync({ ...input, clientId });
   }
-
   const offlineDrafts = drafts.filter((transaction) => {
-    if (transaction.userId !== userId) {
-      return false;
-    }
-
-    if (range.from && transaction.occurredAt < range.from) {
-      return false;
-    }
-    if (range.to && transaction.occurredAt > range.to) {
-      return false;
-    }
+    if (transaction.userId !== userId) return false;
+    if (range.from && transaction.occurredAt < range.from) return false;
+    if (range.to && transaction.occurredAt > range.to) return false;
     return true;
   });
-  const transactions = [...offlineDrafts, ...(transactionsQuery.data ?? [])].sort(
+  const transactions = [...new Map([...offlineDrafts, ...(transactionsQuery.data ?? [])].map((transaction) => [transaction.id, transaction])).values()].sort(
     (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
   );
   const historyTransactions = [
-    ...drafts.filter((transaction) => transaction.userId === userId),
-    ...(historyQuery.data ?? cachedHistory ?? []),
+    ...new Map(
+      [...drafts.filter((transaction) => transaction.userId === userId), ...(historyQuery.data ?? cachedHistory ?? [])]
+        .map((transaction) => [transaction.id, transaction]),
+    ).values(),
   ];
   // A newly signed-in profile has no query result or offline cache yet. Keep
   // the first render safe while the server creates/returns its categories.

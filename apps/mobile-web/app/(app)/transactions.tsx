@@ -21,7 +21,6 @@ import { appShellStore } from "../../src/state/app-shell";
 import { resolveSummaryRange } from "../../src/lib/summary-range";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
-import { nanoid } from "nanoid/non-secure";
 
 function normalizeAmountInput(value: string) {
   const cleaned = value.replace(/[^\d.]/g, "");
@@ -32,19 +31,11 @@ function normalizeAmountInput(value: string) {
   return `${parts[0]}.${parts.slice(1).join("")}`;
 }
 
-function isNetworkError(error: unknown) {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return message.includes("network") || message.includes("fetch");
-}
-
 export default function TransactionsScreen() {
   const { width } = useWindowDimensions();
   const compactDateTime = width < 420;
   const user = sessionStore((state) => state.user);
   const drafts = draftTransactionsStore((state) => state.drafts);
-  const removeDraftByClientId = draftTransactionsStore((state) => state.removeDraftByClientId);
-  const removeQueuedMutationByClientId = offlineQueueStore((state) => state.removeByClientId);
-  const enqueue = offlineQueueStore((state) => state.enqueue);
   const queuedMutations = offlineQueueStore((state) => state.mutations);
   const queryClient = useQueryClient();
   const userId = user?.id ?? "anonymous";
@@ -137,76 +128,26 @@ export default function TransactionsScreen() {
   const categoryNameById = new Map((categoriesQuery.data ?? []).map((category) => [category.id, category.name]));
 
   const transactions = [
-    ...drafts.filter((transaction) => {
-      if (transaction.userId !== userId) return false;
-      if (range.from && transaction.occurredAt < range.from) return false;
-      if (range.to && transaction.occurredAt > range.to) return false;
-      return true;
-    }),
-    ...(transactionsQuery.data ?? []),
+    ...new Map(
+      [
+        ...drafts.filter((transaction) => {
+          if (transaction.userId !== userId) return false;
+          if (range.from && transaction.occurredAt < range.from) return false;
+          if (range.to && transaction.occurredAt > range.to) return false;
+          return true;
+        }),
+        ...(transactionsQuery.data ?? []),
+      ].map((transaction) => [transaction.id, transaction]),
+    ).values(),
   ].sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime());
 
-  function queueUpdate(id: string, data: Parameters<typeof api.updateTransaction>[1]) {
-    offlineCacheStore.getState().updateTransaction(userId, id, data);
-    enqueue({
-      id: nanoid(),
-      userId,
-      entity: "transaction",
-      action: "update",
-      payload: { id, data },
-      createdAt: new Date().toISOString(),
-    });
-    void queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    void queryClient.invalidateQueries({ queryKey: ["report"] });
-    void queryClient.invalidateQueries({ queryKey: ["reports"] });
-    setSelectedTransaction(null);
-  }
-
-  function queueDelete(id: string) {
-    offlineCacheStore.getState().removeTransaction(userId, id);
-    enqueue({
-      id: nanoid(),
-      userId,
-      entity: "transaction",
-      action: "delete",
-      payload: { id },
-      createdAt: new Date().toISOString(),
-    });
-    void queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    void queryClient.invalidateQueries({ queryKey: ["report"] });
-    void queryClient.invalidateQueries({ queryKey: ["reports"] });
-    setPendingDeleteTransaction(null);
-  }
-
   async function handleUpdate(id: string, data: Parameters<typeof api.updateTransaction>[1]) {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      queueUpdate(id, data);
-      return;
-    }
-
-    try {
-      await updateMutation.mutateAsync({ id, data });
-    } catch (error) {
-      if (isNetworkError(error)) {
-        queueUpdate(id, data);
-      }
-    }
+    await updateMutation.mutateAsync({ id, data });
   }
 
   async function handleDelete(id: string) {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      queueDelete(id);
-      return;
-    }
-
-    try {
-      await deleteMutation.mutateAsync(id);
-      setPendingDeleteTransaction(null);
-    } catch (error) {
-      if (isNetworkError(error)) {
-        queueDelete(id);
-      }
-    }
+    await deleteMutation.mutateAsync(id);
+    setPendingDeleteTransaction(null);
   }
 
   useEffect(() => {
@@ -291,7 +232,7 @@ export default function TransactionsScreen() {
                 <View style={styles.rowActions}>
                   <Text style={styles.amount}>{formatMoney(transaction.amount, user?.currency ?? "USD")}</Text>
                   <View style={styles.actionRow}>
-                    {!isDraft ? <PillButton label="Edit" tone="ghost" onPress={() => openEditor(transaction)} /> : null}
+                    <PillButton label="Edit" tone="ghost" onPress={() => openEditor(transaction)} />
                     <PillButton label="Delete" tone="ghost" onPress={() => setPendingDeleteTransaction(transaction)} />
                   </View>
                 </View>
@@ -316,7 +257,7 @@ export default function TransactionsScreen() {
             </View>
             <View style={styles.modalActions}>
               <PillButton label="Close" tone="ghost" onPress={() => setViewingTransaction(null)} />
-              {viewingTransaction && !viewingTransaction.id.startsWith("client-") ? (
+              {viewingTransaction ? (
                 <PillButton
                   label="Edit"
                   onPress={() => {
@@ -447,13 +388,6 @@ export default function TransactionsScreen() {
                 tone="ghost"
                 onPress={() => {
                   if (!pendingDeleteTransaction) {
-                    return;
-                  }
-
-                  if (pendingDeleteTransaction.id.startsWith("client-")) {
-                    removeDraftByClientId(pendingDeleteTransaction.id);
-                    removeQueuedMutationByClientId(pendingDeleteTransaction.id);
-                    setPendingDeleteTransaction(null);
                     return;
                   }
 

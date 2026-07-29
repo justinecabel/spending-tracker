@@ -51,7 +51,7 @@ jobs:
         env:
           EXPO_PUBLIC_API_URL: https://docker-app-spending-tracker.tailde68a.ts.net
           EXPO_PUBLIC_BASE_URL: ${{ steps.pages-path.outputs.base_url }}
-        run: pnpm --filter @spending-tracker/mobile-web exec expo export --platform web
+        run: pnpm --filter @spending-tracker/mobile-web build
 
       - name: Add GitHub Pages route fallback
         env:

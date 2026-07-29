@@ -24,6 +24,7 @@ type OfflineCacheState = {
   ) => void;
   getTransactions: (userId: string, query?: Record<string, string>) => Transaction[];
   upsertTransaction: (userId: string, transaction: Transaction) => void;
+  replaceTransaction: (userId: string, temporaryId: string, transaction: Transaction) => void;
   upsertCategory: (userId: string, category: Category) => void;
   removeCategory: (userId: string, id: string) => void;
   replaceCategory: (userId: string, temporaryId: string, category: Category) => void;
@@ -159,6 +160,29 @@ export const offlineCacheStore = create<OfflineCacheState>()(
             ]),
           ),
         })),
+      replaceTransaction: (userId, temporaryId, transaction) =>
+        set((state) => {
+          const replace = (transactions: Transaction[]) =>
+            sortTransactions([
+              transaction,
+              ...transactions.filter(
+                (current) => current.id !== temporaryId && current.id !== transaction.id,
+              ),
+            ]);
+
+          return {
+            transactionsByUser: {
+              ...state.transactionsByUser,
+              [userId]: replace(state.transactionsByUser[userId] ?? []),
+            },
+            transactionsByScope: Object.fromEntries(
+              Object.entries(state.transactionsByScope).map(([scope, transactions]) => [
+                scope,
+                scope.startsWith(`${userId}:`) ? replace(transactions) : transactions,
+              ]),
+            ),
+          };
+        }),
       upsertBudget: (scope, budget) =>
         set((state) => ({
           budgetsByScope: {

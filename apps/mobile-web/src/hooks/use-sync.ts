@@ -28,18 +28,22 @@ export function useSyncQueue(userId: string | null | undefined) {
         try {
           if (mutation.entity === "transaction" && mutation.action === "create") {
             const payload = mutation.payload as { clientId?: string };
-            await api.createTransaction(payload as never);
+            const transaction = await api.createTransaction(payload as never);
             if (payload.clientId) {
               draftTransactionsStore.getState().removeDraftByClientId(payload.clientId);
+              offlineCacheStore.getState().replaceTransaction(activeUserId, payload.clientId, transaction);
+              offlineQueueStore.getState().replaceTransactionId(payload.clientId, transaction.id);
             }
           }
           if (mutation.entity === "transaction" && mutation.action === "update") {
             const payload = mutation.payload as { id: string; data: Record<string, unknown> };
-            await api.updateTransaction(payload.id, payload.data as never);
+            const transaction = await api.updateTransaction(payload.id, payload.data as never);
+            offlineCacheStore.getState().upsertTransaction(activeUserId, transaction);
           }
           if (mutation.entity === "transaction" && mutation.action === "delete") {
             const payload = mutation.payload as { id: string };
             await api.deleteTransaction(payload.id);
+            offlineCacheStore.getState().removeTransaction(activeUserId, payload.id);
           }
           if (mutation.entity === "category" && mutation.action === "create") {
             const payload = mutation.payload as {

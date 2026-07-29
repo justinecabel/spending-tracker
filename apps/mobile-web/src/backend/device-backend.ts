@@ -8,6 +8,7 @@ import type {
 } from "@spending-tracker/shared";
 import { nanoid } from "nanoid/non-secure";
 import { countdownStore } from "../state/countdown";
+import { draftTransactionsStore } from "../state/draft-transactions";
 import { offlineCacheStore, transactionScopeKey } from "../state/offline-cache";
 import { offlineQueueStore } from "../state/offline-queue";
 import { sessionStore } from "../state/session";
@@ -136,9 +137,39 @@ export function createDeviceBackend(
 
     async createTransaction(input: Parameters<RemoteStorage["createTransaction"]>[0]) {
       const userId = getUserId();
-      const transaction = await remote.createTransaction(input);
-      offlineCacheStore.getState().upsertTransaction(userId, transaction);
-      return transaction;
+      const clientId = input.clientId ?? `client-${nanoid()}`;
+      const remoteInput = { ...input, clientId };
+      try {
+        const transaction = await remote.createTransaction(remoteInput);
+        offlineCacheStore.getState().upsertTransaction(userId, transaction);
+        return transaction;
+      } catch (error) {
+        if (!isRemoteUnavailable(error)) {
+          throw error;
+        }
+
+        const now = new Date().toISOString();
+        const transaction: Transaction = {
+          id: clientId,
+          userId,
+          categoryId: input.categoryId,
+          amount: input.amount,
+          kind: input.kind ?? "expense",
+          occurredAt: input.occurredAt,
+          note: input.note ?? null,
+          merchant: input.merchant ?? null,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        };
+        offlineCacheStore.getState().upsertTransaction(userId, transaction);
+        enqueue(userId, {
+          entity: "transaction",
+          action: "create",
+          payload: remoteInput,
+        });
+        return transaction;
+      }
     },
 
     async updateTransaction(
@@ -146,15 +177,88 @@ export function createDeviceBackend(
       input: Parameters<RemoteStorage["updateTransaction"]>[1],
     ) {
       const userId = getUserId();
-      const transaction = await remote.updateTransaction(id, input);
-      offlineCacheStore.getState().upsertTransaction(userId, transaction);
-      return transaction;
+      const queue = offlineQueueStore.getState();
+      const hasPendingCreate = queue.mutations.some((mutation) => {
+        const payload = mutation.payload as { clientId?: string };
+        return mutation.entity === "transaction" && mutation.action === "create" && payload.clientId === id;
+      });
+      if (hasPendingCreate) {
+        const current =
+          offlineCacheStore
+            .getState()
+            .transactionsByUser[userId]?.find((transaction) => transaction.id === id) ??
+          draftTransactionsStore
+            .getState()
+            .drafts.find((transaction) => transaction.userId === userId && transaction.id === id);
+        if (!current) {
+          throw new Error("Transaction is not available on this device");
+        }
+        const transaction: Transaction = { ...current, ...input, updatedAt: new Date().toISOString() };
+        queue.updateTransactionCreate(id, input);
+        offlineCacheStore.getState().upsertTransaction(userId, transaction);
+        return transaction;
+      }
+      try {
+        const transaction = await remote.updateTransaction(id, input);
+        offlineCacheStore.getState().upsertTransaction(userId, transaction);
+        return transaction;
+      } catch (error) {
+        if (!isRemoteUnavailable(error)) {
+          throw error;
+        }
+        const current =
+          offlineCacheStore
+            .getState()
+            .transactionsByUser[userId]?.find((transaction) => transaction.id === id) ??
+          draftTransactionsStore
+            .getState()
+            .drafts.find((transaction) => transaction.userId === userId && transaction.id === id);
+        if (!current) {
+          throw error;
+        }
+        const updatedAt = new Date().toISOString();
+        const transaction: Transaction = { ...current, ...input, updatedAt };
+        if (hasPendingCreate) {
+          queue.updateTransactionCreate(id, input);
+        } else {
+          enqueue(userId, {
+            entity: "transaction",
+            action: "update",
+            payload: { id, data: input },
+          });
+        }
+        offlineCacheStore.getState().upsertTransaction(userId, transaction);
+        return transaction;
+      }
     },
 
     async deleteTransaction(id: string) {
       const userId = getUserId();
-      await remote.deleteTransaction(id);
-      offlineCacheStore.getState().removeTransaction(userId, id);
+      const cache = offlineCacheStore.getState();
+      const hasPendingCreate = offlineQueueStore.getState().mutations.some((mutation) => {
+        const payload = mutation.payload as { clientId?: string };
+        return mutation.entity === "transaction" && mutation.action === "create" && payload.clientId === id;
+      });
+      if (hasPendingCreate) {
+        cache.removeTransaction(userId, id);
+        draftTransactionsStore.getState().removeDraftByClientId(id);
+        offlineQueueStore.getState().removeByClientId(id);
+        return;
+      }
+      try {
+        await remote.deleteTransaction(id);
+        cache.removeTransaction(userId, id);
+      } catch (error) {
+        if (!isRemoteUnavailable(error)) {
+          throw error;
+        }
+        cache.removeTransaction(userId, id);
+        enqueue(userId, {
+          entity: "transaction",
+          action: "delete",
+          payload: { id },
+        });
+      }
     },
 
     async debts(): Promise<Debt[]> {

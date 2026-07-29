@@ -186,17 +186,19 @@ export default function SettingsScreen() {
     <ScreenContainer screenKey="settings">
       <PageHeader title="Settings" />
       <Card>
-        <View style={styles.list}>
-          <View>
+        <View style={styles.accountSummary}>
+          <View style={styles.accountMetaGrid}>
+          <View style={styles.accountMetaItem}>
             <Text style={styles.label}>Name</Text>
             <Text style={styles.value}>{user?.name ?? "Unknown"}</Text>
           </View>
-          <View>
+          <View style={styles.accountMetaItem}>
             <Text style={styles.label}>Login mode</Text>
             <Text style={styles.value}>{loginMode}</Text>
           </View>
+          </View>
           {hasMultipleProfiles ? (
-            <View style={styles.switchBlock}>
+            <View style={styles.accountControlSection}>
               <Text style={styles.label}>Profiles</Text>
               <View style={styles.switchList}>
                 {deviceProfile ? (
@@ -218,7 +220,7 @@ export default function SettingsScreen() {
               </View>
             </View>
           ) : null}
-          <View>
+          <View style={styles.accountControlSection}>
             <Text style={styles.label}>Currency</Text>
             <View style={styles.currencyRow}>
               <TextInput
@@ -241,14 +243,16 @@ export default function SettingsScreen() {
             </View>
             {updatePreferences.error ? <Text style={styles.error}>{updatePreferences.error.message}</Text> : null}
           </View>
-          <Pressable
-            style={styles.signOutButton}
-            onPress={() => {
-              clearSession();
-            }}
-          >
-            <Text style={styles.signOutButtonText}>Sign out</Text>
-          </Pressable>
+          <View style={styles.accountFooter}>
+            <Pressable
+              style={styles.signOutButton}
+              onPress={() => {
+                clearSession();
+              }}
+            >
+              <Text style={styles.signOutButtonText}>Sign out</Text>
+            </Pressable>
+          </View>
         </View>
       </Card>
       <Card>
@@ -312,24 +316,27 @@ export default function SettingsScreen() {
           title="Appearance"
           subtitle="Choose the scheme plus optional primary and secondary colors for this profile."
         />
-        <View style={styles.rangeModeRow}>
-          <PillButton
-            label="Device"
-            tone={appearanceMode === "device" ? "primary" : "ghost"}
-            onPress={() => setAppearanceMode(appearanceProfileKey, "device")}
-          />
-          <PillButton
-            label="Light"
-            tone={appearanceMode === "light" ? "primary" : "ghost"}
-            onPress={() => setAppearanceMode(appearanceProfileKey, "light")}
-          />
-          <PillButton
-            label="Dark"
-            tone={appearanceMode === "dark" ? "primary" : "ghost"}
-            onPress={() => setAppearanceMode(appearanceProfileKey, "dark")}
-          />
+        <View style={styles.appearanceSection}>
+          <Text style={styles.label}>Color scheme</Text>
+          <View style={styles.rangeModeRow}>
+            <PillButton
+              label="Device"
+              tone={appearanceMode === "device" ? "primary" : "ghost"}
+              onPress={() => setAppearanceMode(appearanceProfileKey, "device")}
+            />
+            <PillButton
+              label="Light"
+              tone={appearanceMode === "light" ? "primary" : "ghost"}
+              onPress={() => setAppearanceMode(appearanceProfileKey, "light")}
+            />
+            <PillButton
+              label="Dark"
+              tone={appearanceMode === "dark" ? "primary" : "ghost"}
+              onPress={() => setAppearanceMode(appearanceProfileKey, "dark")}
+            />
+          </View>
         </View>
-        <View style={styles.accentEditor}>
+        <View style={[styles.accentEditor, styles.appearanceSection]}>
           <View style={styles.labelWithHelp}>
             <Text style={styles.label}>Custom colors</Text>
             <HelpTooltip
@@ -337,8 +344,10 @@ export default function SettingsScreen() {
               text="Primary changes buttons and highlights. Secondary changes soft selected and supporting surfaces."
             />
           </View>
+          <View style={styles.colorGrid}>
           <View style={styles.colorEditorRow}>
             <Text style={styles.colorLabel}>Primary</Text>
+            <View style={styles.colorValueRow}>
             <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(accentDraft) ?? theme.colors.accent }]}>
               <TextInput
                 value={normalizeCustomAccent(accentDraft) ?? "#0F766E"}
@@ -362,9 +371,11 @@ export default function SettingsScreen() {
               maxLength={7}
               style={styles.accentInput}
             />
+            </View>
           </View>
           <View style={styles.colorEditorRow}>
             <Text style={styles.colorLabel}>Secondary</Text>
+            <View style={styles.colorValueRow}>
             <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(secondaryAccentDraft) ?? theme.colors.accentSoft }]}>
               <TextInput
                 value={normalizeCustomAccent(secondaryAccentDraft) ?? "#D9F3EF"}
@@ -388,6 +399,8 @@ export default function SettingsScreen() {
               maxLength={7}
               style={styles.accentInput}
             />
+            </View>
+          </View>
           </View>
           <View style={styles.accentInputRow}>
             <PillButton
@@ -688,6 +701,30 @@ const styles = StyleSheet.create({
   list: {
     gap: 16,
   },
+  accountSummary: {
+    gap: 12,
+  },
+  accountMetaGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  accountMetaItem: {
+    flexBasis: 160,
+    flexGrow: 1,
+    gap: 2,
+  },
+  accountControlSection: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    gap: 6,
+    paddingTop: 12,
+  },
+  accountFooter: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingTop: 12,
+  },
   label: {
     color: theme.colors.muted,
     ...theme.typography.label,
@@ -733,6 +770,12 @@ const styles = StyleSheet.create({
   accentEditor: {
     gap: 10,
   },
+  appearanceSection: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    gap: 8,
+    paddingTop: 12,
+  },
   accentInputRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -740,9 +783,17 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   colorEditorRow: {
+    flex: 1,
+    gap: 10,
+  },
+  colorGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+  },
+  colorValueRow: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
     gap: 10,
   },
   colorLabel: {
@@ -750,7 +801,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "700",
-    width: 76,
   },
   accentPreview: {
     width: 34,
@@ -797,6 +847,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    flexWrap: "wrap",
   },
   rangeInput: {
     borderWidth: 1,

@@ -166,6 +166,98 @@ describe("device backend", () => {
     });
   });
 
+  it("creates, edits, and deletes transactions locally while the remote is unavailable", async () => {
+    const backend = createDeviceBackend(
+      remoteStorage({
+        createTransaction: vi.fn(async () => {
+          throw new Error("Failed to fetch");
+        }),
+        updateTransaction: vi.fn(async () => {
+          throw new Error("Failed to fetch");
+        }),
+        deleteTransaction: vi.fn(async () => {
+          throw new Error("Failed to fetch");
+        }),
+      }),
+      () => userId,
+    );
+
+    const created = await backend.createTransaction({
+      clientId: "client-new-transaction",
+      categoryId: "food",
+      amount: 20,
+      kind: "expense",
+      occurredAt: "2026-07-28T12:00:00.000Z",
+      merchant: "Cafe",
+    });
+
+    expect(created.id).toBe("client-new-transaction");
+    expect(offlineCacheStore.getState().getTransactions(userId)).toEqual([created]);
+    expect(offlineQueueStore.getState().mutations).toMatchObject([
+      {
+        userId,
+        entity: "transaction",
+        action: "create",
+        payload: { clientId: "client-new-transaction", amount: 20 },
+      },
+    ]);
+
+    const updated = await backend.updateTransaction(created.id, { amount: 25, note: "With tip" });
+    expect(updated).toMatchObject({ id: created.id, amount: 25, note: "With tip" });
+    expect(offlineCacheStore.getState().getTransactions(userId)).toMatchObject([
+      { id: created.id, amount: 25, note: "With tip" },
+    ]);
+    expect(offlineQueueStore.getState().mutations).toHaveLength(1);
+    expect(offlineQueueStore.getState().mutations[0]).toMatchObject({
+      action: "create",
+      payload: { clientId: created.id, amount: 25, note: "With tip" },
+    });
+
+    await backend.deleteTransaction(created.id);
+    expect(offlineCacheStore.getState().getTransactions(userId)).toEqual([]);
+    expect(offlineQueueStore.getState().mutations).toEqual([]);
+  });
+
+  it("queues edits and deletes for transactions already saved remotely", async () => {
+    const transaction: Transaction = {
+      id: "transaction-1",
+      userId,
+      categoryId: "food",
+      amount: 20,
+      kind: "expense",
+      occurredAt: "2026-07-28T12:00:00.000Z",
+      note: null,
+      merchant: "Cafe",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    offlineCacheStore.getState().upsertTransaction(userId, transaction);
+    const backend = createDeviceBackend(
+      remoteStorage({
+        updateTransaction: vi.fn(async () => {
+          throw new Error("Network unavailable");
+        }),
+        deleteTransaction: vi.fn(async () => {
+          throw new Error("Network unavailable");
+        }),
+      }),
+      () => userId,
+    );
+
+    await backend.updateTransaction(transaction.id, { amount: 24 });
+    expect(offlineCacheStore.getState().getTransactions(userId)).toMatchObject([
+      { id: transaction.id, amount: 24 },
+    ]);
+
+    await backend.deleteTransaction(transaction.id);
+    expect(offlineCacheStore.getState().getTransactions(userId)).toEqual([]);
+    expect(offlineQueueStore.getState().mutations).toMatchObject([
+      { entity: "transaction", action: "update", payload: { id: transaction.id, data: { amount: 24 } } },
+      { entity: "transaction", action: "delete", payload: { id: transaction.id } },
+    ]);
+  });
+
   it("keeps countdown changes on device until remote storage returns", async () => {
     const backend = createDeviceBackend(
       remoteStorage({

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "expo start",
     "web": "expo start --web",
-    "build": "expo export --platform web",
+    "build": "node ../../scripts/build-mobile-web.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -10,6 +10,8 @@ type OfflineQueueState = {
   removeByClientId: (clientId: string) => void;
   replaceCategoryId: (fromCategoryId: string, toCategoryId: string) => void;
   replaceDebtId: (fromDebtId: string, toDebtId: string) => void;
+  replaceTransactionId: (fromTransactionId: string, toTransactionId: string) => void;
+  updateTransactionCreate: (clientId: string, data: Record<string, unknown>) => void;
   clear: () => void;
 };
 
@@ -66,6 +68,34 @@ export const offlineQueueStore = create<OfflineQueueState>()(
                 ...(payload.temporaryId === fromDebtId ? { temporaryId: toDebtId } : {}),
               },
             };
+          }),
+        })),
+      replaceTransactionId: (fromTransactionId, toTransactionId) =>
+        set((state) => ({
+          mutations: state.mutations.map((mutation) => {
+            if (mutation.entity !== "transaction" || mutation.action === "create") {
+              return mutation;
+            }
+            const payload = mutation.payload as { id?: string };
+            return {
+              ...mutation,
+              payload: {
+                ...payload,
+                ...(payload.id === fromTransactionId ? { id: toTransactionId } : {}),
+              },
+            };
+          }),
+        })),
+      updateTransactionCreate: (clientId, data) =>
+        set((state) => ({
+          mutations: state.mutations.map((mutation) => {
+            if (mutation.entity !== "transaction" || mutation.action !== "create") {
+              return mutation;
+            }
+            const payload = mutation.payload as { clientId?: string };
+            return payload.clientId === clientId
+              ? { ...mutation, payload: { ...payload, ...data } }
+              : mutation;
           }),
         })),
       clear: () => set({ mutations: [] }),
