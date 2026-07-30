@@ -17,8 +17,13 @@ export function useBackendAvailability() {
     let active = true;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let interval: ReturnType<typeof setInterval> | undefined;
+    let checking = false;
 
     const check = async () => {
+      if (checking) {
+        return;
+      }
+      checking = true;
       const controller = new AbortController();
       timeout = setTimeout(() => controller.abort(), 4_000);
       try {
@@ -34,6 +39,7 @@ export function useBackendAvailability() {
         if (timeout) {
           clearTimeout(timeout);
         }
+        checking = false;
       }
     };
 

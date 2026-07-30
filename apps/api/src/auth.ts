@@ -17,6 +17,7 @@ import { HttpError } from "./http-error";
 const googleClient = new OAuth2Client(config.googleClientId || undefined);
 const SYNC_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const DEVICE_SECRET_MIN_LENGTH = 32;
+const NON_EXPIRING_SESSION_TIMESTAMP = "9999-12-31T23:59:59.999Z";
 
 export async function verifyGoogleToken(idToken: string) {
   const ticket = await googleClient.verifyIdToken({
@@ -217,14 +218,19 @@ export function enrollLegacyDeviceCredential(
   ).run(hashDeviceSecret(deviceSecret), user.id);
 }
 
-export function createSession(user: User, options: { familyId?: string } = {}) {
+export function createSession(
+  user: User,
+  options: { familyId?: string; refreshExpiresAt?: string } = {},
+) {
   touchUser(user.id);
   const accessToken = jwt.sign({ sub: user.id }, config.jwtSecret, { expiresIn: "1h" });
   const refreshToken = nanoid(48);
   const refreshTokenId = nanoid();
   const familyId = options.familyId ?? refreshTokenId;
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30).toISOString();
+  const expiresAt =
+    options.refreshExpiresAt ??
+    new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30).toISOString();
 
   db.prepare(
     `
@@ -296,6 +302,13 @@ export function refreshSession(
         );
         result = createSession(user, {
           familyId: row.refresh_family_id ?? row.refresh_token_id,
+          // Sync Code profiles are intentionally durable. Preserve their
+          // non-expiring refresh window across token rotation while regular
+          // device and Google sessions keep the normal sliding expiry.
+          refreshExpiresAt:
+            row.refresh_expires_at === NON_EXPIRING_SESSION_TIMESTAMP
+              ? NON_EXPIRING_SESSION_TIMESTAMP
+              : undefined,
         });
       }
     }
@@ -329,7 +342,7 @@ export function createTransferToken(userId: string) {
   return transferTokenResponseSchema.parse({
     token,
     pairingCode: token,
-    expiresAt: "9999-12-31T23:59:59.999Z",
+    expiresAt: NON_EXPIRING_SESSION_TIMESTAMP,
     qrValue: token,
   });
 }
@@ -348,7 +361,7 @@ export function regenerateTransferToken(userId: string) {
   return transferTokenResponseSchema.parse({
     token,
     pairingCode: token,
-    expiresAt: "9999-12-31T23:59:59.999Z",
+    expiresAt: NON_EXPIRING_SESSION_TIMESTAMP,
     qrValue: token,
   });
 }
@@ -361,7 +374,9 @@ export function consumeTransferToken(rawToken: string) {
     throw new Error("This pairing code does not exist or is no longer valid");
   }
 
-  return createSession(hydrateUser(row));
+  return createSession(hydrateUser(row), {
+    refreshExpiresAt: NON_EXPIRING_SESSION_TIMESTAMP,
+  });
 }
 
 export function verifyAccessToken(token: string) {

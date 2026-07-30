@@ -199,7 +199,7 @@ export function TransferInPanel({
             <Text style={styles.modalTitle}>Saved Sync Code is no longer valid</Text>
             <Text style={styles.modalBody}>
               The saved Sync Code profile{staleProfile?.user.name ? ` for ${staleProfile.user.name}` : ""} can no longer be restored.
-              It may have been regenerated or its saved session expired. You can delete this saved sync from this device and enter a new code.
+              It may have been regenerated. You can delete this saved sync from this device and enter a new code.
             </Text>
             <View style={styles.modalActions}>
               <Pressable style={styles.secondaryButton} onPress={onDismissStaleLinkedProfile}>

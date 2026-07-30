@@ -112,6 +112,22 @@ async function restorePersistedSession() {
     return null;
   }
 
+  // A remembered Sync Code is the durable credential for a linked profile.
+  // Prefer it over rotating refresh tokens so an expired or concurrently
+  // rotated browser session cannot disconnect a still-valid saved profile.
+  if (state.activeProfile === "linked") {
+    try {
+      const session = await restoreFromSavedProfile();
+      if (session) {
+        return session;
+      }
+    } catch (error) {
+      if (isNetworkError(error)) {
+        throw error;
+      }
+    }
+  }
+
   try {
     const session = await refreshStoredToken(state.refreshToken);
     state.setSession(session, (state.activeProfile ?? "device") as ProfileSlot);
@@ -122,14 +138,16 @@ async function restorePersistedSession() {
     }
   }
 
-  try {
-    const session = await restoreFromSavedProfile();
-    if (session) {
-      return session;
-    }
-  } catch (error) {
-    if (isNetworkError(error)) {
-      throw error;
+  if (state.activeProfile !== "linked") {
+    try {
+      const session = await restoreFromSavedProfile();
+      if (session) {
+        return session;
+      }
+    } catch (error) {
+      if (isNetworkError(error)) {
+        throw error;
+      }
     }
   }
 

@@ -129,6 +129,9 @@ test("pairing codes are cryptographic, stable, and explicitly regeneratable", ()
 
     const linkedSession = consumeTransferToken(transfer.token);
     assert.equal(linkedSession.user.id, user.id);
+    assert.equal(refreshExpiry(linkedSession.refreshToken), transfer.expiresAt);
+    const rotatedLinkedSession = refreshSession(linkedSession.refreshToken);
+    assert.equal(refreshExpiry(rotatedLinkedSession.refreshToken), transfer.expiresAt);
     assert.equal(consumeTransferToken(transfer.token).user.id, user.id);
     assert.equal(createTransferToken(user.id).token, transfer.token);
 
@@ -180,4 +183,11 @@ function postDeviceAuth(baseUrl: string, body: Record<string, unknown>) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+function refreshExpiry(token: string) {
+  const row = db
+    .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
+    .get(token) as { expires_at: string } | undefined;
+  return row?.expires_at;
 }

@@ -27,6 +27,10 @@ try {
   const child = spawn(pnpmCommand, ["--filter", "@spending-tracker/mobile-web", "dev"], {
     cwd: process.cwd(),
     env: { ...process.env, EXPO_PUBLIC_API_URL: apiUrl },
+    // Windows command shims are .cmd files and cannot be spawned directly by
+    // current Node releases. A shell is only needed for that trusted shim;
+    // arguments and the API URL are still supplied by this script.
+    shell: process.platform === "win32",
     stdio: "inherit",
   });
 

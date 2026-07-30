@@ -16,12 +16,14 @@ export function useSyncQueue(userId: string | null | undefined) {
     const activeUserId = userId;
 
     let cancelled = false;
+    let flushing = false;
 
     async function flush() {
-      if ((typeof navigator !== "undefined" && !navigator.onLine) || cancelled) {
+      if ((typeof navigator !== "undefined" && !navigator.onLine) || cancelled || flushing) {
         return;
       }
 
+      flushing = true;
       const { mutations, remove } = offlineQueueStore.getState();
       let processed = false;
       for (const mutation of mutations.filter((queuedMutation) => queuedMutation.userId === activeUserId)) {
@@ -111,6 +113,7 @@ export function useSyncQueue(userId: string | null | undefined) {
           break;
         }
       }
+      flushing = false;
 
       if (processed && !cancelled) {
         await Promise.all([
