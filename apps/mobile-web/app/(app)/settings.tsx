@@ -345,62 +345,62 @@ export default function SettingsScreen() {
             />
           </View>
           <View style={styles.colorGrid}>
-          <View style={styles.colorEditorRow}>
-            <Text style={styles.colorLabel}>Primary</Text>
-            <View style={styles.colorValueRow}>
-            <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(accentDraft) ?? theme.colors.accent }]}>
-              <TextInput
-                value={normalizeCustomAccent(accentDraft) ?? "#0F766E"}
-                onChangeText={(value) => {
-                  setAccentDraft(value.toUpperCase().slice(0, 7));
-                  setAccentError(null);
-                }}
-                style={styles.colorPicker}
-                {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Primary color" } as any) : {})}
-              />
+            <View style={styles.colorEditorRow}>
+              <Text style={styles.colorLabel}>Primary</Text>
+              <View style={styles.colorValueRow}>
+                <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(accentDraft) ?? theme.colors.accent }]}>
+                  <TextInput
+                    value={normalizeCustomAccent(accentDraft) ?? "#0F766E"}
+                    onChangeText={(value) => {
+                      setAccentDraft(value.toUpperCase().slice(0, 7));
+                      setAccentError(null);
+                    }}
+                    style={styles.colorPicker}
+                    {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Primary color" } as any) : {})}
+                  />
+                </View>
+                <TextInput
+                  value={accentDraft}
+                  onChangeText={(value) => {
+                    setAccentDraft(value.toUpperCase().slice(0, 7));
+                    setAccentError(null);
+                  }}
+                  placeholder="#0F766E"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={7}
+                  style={styles.accentInput}
+                />
+              </View>
             </View>
-            <TextInput
-              value={accentDraft}
-              onChangeText={(value) => {
-                setAccentDraft(value.toUpperCase().slice(0, 7));
-                setAccentError(null);
-              }}
-              placeholder="#0F766E"
-              autoCapitalize="characters"
-              autoCorrect={false}
-              maxLength={7}
-              style={styles.accentInput}
-            />
+            <View style={styles.colorEditorRow}>
+              <Text style={styles.colorLabel}>Secondary</Text>
+              <View style={styles.colorValueRow}>
+                <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(secondaryAccentDraft) ?? theme.colors.accentSoft }]}>
+                  <TextInput
+                    value={normalizeCustomAccent(secondaryAccentDraft) ?? "#D9F3EF"}
+                    onChangeText={(value) => {
+                      setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
+                      setAccentError(null);
+                    }}
+                    style={styles.colorPicker}
+                    {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Secondary color" } as any) : {})}
+                  />
+                </View>
+                <TextInput
+                  value={secondaryAccentDraft}
+                  onChangeText={(value) => {
+                    setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
+                    setAccentError(null);
+                  }}
+                  placeholder="#D9F3EF"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={7}
+                  style={styles.accentInput}
+                />
+              </View>
             </View>
-          </View>
-          <View style={styles.colorEditorRow}>
-            <Text style={styles.colorLabel}>Secondary</Text>
-            <View style={styles.colorValueRow}>
-            <View style={[styles.colorPreview, { backgroundColor: normalizeCustomAccent(secondaryAccentDraft) ?? theme.colors.accentSoft }]}>
-              <TextInput
-                value={normalizeCustomAccent(secondaryAccentDraft) ?? "#D9F3EF"}
-                onChangeText={(value) => {
-                  setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
-                  setAccentError(null);
-                }}
-                style={styles.colorPicker}
-                {...(Platform.OS === "web" ? ({ type: "color", "aria-label": "Secondary color" } as any) : {})}
-              />
-            </View>
-            <TextInput
-              value={secondaryAccentDraft}
-              onChangeText={(value) => {
-                setSecondaryAccentDraft(value.toUpperCase().slice(0, 7));
-                setAccentError(null);
-              }}
-              placeholder="#D9F3EF"
-              autoCapitalize="characters"
-              autoCorrect={false}
-              maxLength={7}
-              style={styles.accentInput}
-            />
-            </View>
-          </View>
           </View>
           <View style={styles.accentInputRow}>
             <PillButton
@@ -783,7 +783,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   colorEditorRow: {
-    flex: 1,
+    flexBasis: 180,
+    flexGrow: 1,
+    minWidth: 180,
     gap: 10,
   },
   colorGrid: {
@@ -794,6 +796,7 @@ const styles = StyleSheet.create({
   colorValueRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 10,
   },
   colorLabel: {
