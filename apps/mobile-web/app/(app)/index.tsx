@@ -570,12 +570,11 @@ export default function DashboardScreen() {
                 { height: `${countdownFill}%` },
               ]}
             >
-              <View style={styles.countdownFillBody} />
-              <View style={styles.countdownWaveSurface} pointerEvents="none">
+              <View style={styles.countdownWaterLayer} pointerEvents="none">
                 <View {...countdownWaveForwardWebProps} style={styles.countdownWaveTrack}>
-                  <Svg width={264} height={34} viewBox="0 0 264 34">
+                  <Svg width={264} height="100%" viewBox="0 0 264 100" preserveAspectRatio="none">
                     <Path
-                      d="M0 16 C11 6 22 6 33 16 S55 26 66 16 S88 6 99 16 S121 26 132 16 S154 6 165 16 S187 26 198 16 S220 6 231 16 S253 26 264 16 L264 34 L0 34 Z"
+                      d="M0 16 C11 6 22 6 33 16 S55 26 66 16 S88 6 99 16 S121 26 132 16 S154 6 165 16 S187 26 198 16 S220 6 231 16 S253 26 264 16 L264 100 L0 100 Z"
                       fill={theme.colors.accent}
                       opacity={0.32}
                     />
@@ -889,17 +888,8 @@ const styles = StyleSheet.create({
   countdownObjectFillExpired: {
     opacity: 0,
   },
-  countdownFillBody: {
-    backgroundColor: theme.colors.accent,
+  countdownWaterLayer: {
     bottom: 0,
-    left: 0,
-    opacity: 0.32,
-    position: "absolute",
-    right: 0,
-    top: 34,
-  },
-  countdownWaveSurface: {
-    height: 34,
     left: 0,
     overflow: "hidden",
     position: "absolute",
@@ -907,7 +897,8 @@ const styles = StyleSheet.create({
     top: 0,
   },
   countdownWaveTrack: {
-    height: 34,
+    bottom: 0,
+    height: "100%",
     left: -66,
     position: "absolute",
     top: 0,
