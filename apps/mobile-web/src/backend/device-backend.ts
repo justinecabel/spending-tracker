@@ -47,7 +47,7 @@ function localFallback<T>(value: T | undefined, error: unknown): T {
 }
 
 function isRemoteUnavailable(error: unknown) {
-  if (typeof navigator !== "undefined" && !navigator.onLine) {
+  if (isBrowserOffline()) {
     return true;
   }
   const message = error instanceof Error ? error.message.toLocaleLowerCase() : "";
@@ -57,6 +57,10 @@ function isRemoteUnavailable(error: unknown) {
     message.includes("offline") ||
     message.includes("unavailable")
   );
+}
+
+function isBrowserOffline() {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
 }
 
 function enqueue(
@@ -139,15 +143,8 @@ export function createDeviceBackend(
       const userId = getUserId();
       const clientId = input.clientId ?? `client-${nanoid()}`;
       const remoteInput = { ...input, clientId };
-      try {
-        const transaction = await remote.createTransaction(remoteInput);
-        offlineCacheStore.getState().upsertTransaction(userId, transaction);
-        return transaction;
-      } catch (error) {
-        if (!isRemoteUnavailable(error)) {
-          throw error;
-        }
 
+      const saveLocally = () => {
         const now = new Date().toISOString();
         const transaction: Transaction = {
           id: clientId,
@@ -169,6 +166,21 @@ export function createDeviceBackend(
           payload: remoteInput,
         });
         return transaction;
+      };
+
+      if (isBrowserOffline()) {
+        return saveLocally();
+      }
+
+      try {
+        const transaction = await remote.createTransaction(remoteInput);
+        offlineCacheStore.getState().upsertTransaction(userId, transaction);
+        return transaction;
+      } catch (error) {
+        if (!isRemoteUnavailable(error)) {
+          throw error;
+        }
+        return saveLocally();
       }
     },
 

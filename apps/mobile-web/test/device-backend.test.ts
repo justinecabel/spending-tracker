@@ -218,6 +218,41 @@ describe("device backend", () => {
     expect(offlineQueueStore.getState().mutations).toEqual([]);
   });
 
+  it("creates transactions immediately when the browser is offline", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    try {
+      const createTransaction = vi.fn(async () => {
+        throw new Error("The remote should not be called while offline");
+      });
+      const backend = createDeviceBackend(
+        remoteStorage({ createTransaction }),
+        () => userId,
+      );
+
+      const transaction = await backend.createTransaction({
+        clientId: "offline-transaction",
+        categoryId: "food",
+        amount: 18,
+        kind: "expense",
+        occurredAt: "2026-07-28T12:00:00.000Z",
+        merchant: "Cafe",
+      });
+
+      expect(transaction.id).toBe("offline-transaction");
+      expect(createTransaction).not.toHaveBeenCalled();
+      expect(offlineQueueStore.getState().mutations).toMatchObject([
+        {
+          userId,
+          entity: "transaction",
+          action: "create",
+          payload: { clientId: "offline-transaction" },
+        },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("queues edits and deletes for transactions already saved remotely", async () => {
     const transaction: Transaction = {
       id: "transaction-1",
