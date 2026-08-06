@@ -44,13 +44,26 @@ For Google Sign-In in Expo, set the client IDs in `apps/mobile-web/app.config.ts
 
 ## Docker
 
-The backend can also run in Docker with SQLite persisted in a named volume:
+The backend can run in Docker behind a persistent Tailscale Funnel. SQLite is
+stored under `docker-data/database`, and the Tailscale identity and Funnel
+configuration persist across container restarts:
 
-```bash
-docker compose up --build api
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --build tailscale
+docker exec -it spending-tracker-tailscale tailscale up
+docker compose up -d --build api
+docker exec spending-tracker-tailscale tailscale funnel status
 ```
 
-This starts the API on [http://localhost:4000](http://localhost:4000) and stores the database under `/app/data/spending-tracker.sqlite` inside the container, backed by the `spending-tracker-api-data` volume.
+The Funnel target is declared in `config/tailscale/funnel.json` and proxies to
+`http://127.0.0.1:4000`. The API is not published directly on the Docker host.
+The Windows health monitor checks the public Funnel every five minutes and
+recovers the stack after two consecutive failures:
+
+```powershell
+pnpm docker:api:schedule-monitor
+```
 
 You can stop it with:
 

@@ -83,21 +83,29 @@ Run the private API through Docker and Tailscale:
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up -d --build
+docker compose up -d --build tailscale
 ```
 
-Tailscale is a separate private sidecar. Log it in manually after Compose starts:
+Tailscale runs as a sidecar with a persistent Funnel configuration. Log it in
+manually the first time after the sidecar starts:
 
 ```bash
 docker exec -it spending-tracker-tailscale tailscale up
-docker exec spending-tracker-tailscale tailscale serve --bg localhost:4000
+docker compose up -d --build api
+docker exec spending-tracker-tailscale tailscale funnel status
 ```
 
-On Windows, schedule the Docker API/Tailscale stack to restart every 12 hours:
+The Funnel configuration is stored in `config/tailscale/funnel.json` and uses
+`127.0.0.1:4000`. Compose also enables Tailscale's `/healthz` endpoint. On
+Windows, install the health-aware monitor so the public Funnel is checked every
+5 minutes and the stack is restarted only after two consecutive failures:
 
 ```powershell
-pnpm docker:api:schedule-restart
+pnpm docker:api:schedule-monitor
 ```
+
+The existing `pnpm docker:api:schedule-restart` command remains an alias for
+the same monitor installer.
 
 Remove that scheduled task with:
 

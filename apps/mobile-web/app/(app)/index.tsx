@@ -1143,13 +1143,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   fabPlus: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
     fontSize: 22,
     fontWeight: "800",
     lineHeight: 22,
   },
   fabLabel: {
-    color: "#FFFFFF",
+    color: theme.colors.accentText,
     ...theme.typography.control,
     fontWeight: "700",
   },
