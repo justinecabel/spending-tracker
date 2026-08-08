@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Animated, Modal, PanResponder, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Animated, Easing, Modal, PanResponder, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Line, Polygon, Polyline, Rect } from "react-native-svg";
 import { buildDebtPaymentHealth, buildForecastAnalysis, type Debt, type ForecastAnalysis, type MonthlyReport, type Transaction } from "@spending-tracker/shared";
 import { ReportCharts } from "../../src/components/report-charts";
@@ -44,7 +44,9 @@ export default function ReportsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [cycleOffset, setCycleOffset] = useState(0);
+  const [cycleViewportWidth, setCycleViewportWidth] = useState(0);
   const cycleTransition = useRef(new Animated.Value(0)).current;
+  const cycleAnimationInFlightRef = useRef(false);
   const graphAnchorRef = useRef<any>(null);
   const graphViewportTopRef = useRef<number | null>(null);
   const graphScrollContainerRef = useRef<HTMLElement | null>(null);
@@ -56,6 +58,8 @@ export default function ReportsScreen() {
   const canNavigateCycles = summaryMode !== "custom-date" || Boolean(customFrom && customTo);
   const supportsTouch = Platform.OS !== "web" || (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0);
   const showCycleButtons = canNavigateCycles && !supportsTouch;
+  const cycleTransitionDistance = Math.max(280, cycleViewportWidth || Math.min(width, 720));
+  const cycleAnimationDriver = Platform.OS !== "web";
   const captureGraphPosition = useCallback(() => {
     if (Platform.OS !== "web") {
       return;
@@ -70,18 +74,75 @@ export default function ReportsScreen() {
     graphScrollContainerRef.current = findScrollContainer(node);
   }, []);
   const animateCycleChange = useCallback((enterFrom: "left" | "right") => {
+    if (cycleAnimationInFlightRef.current) {
+      return;
+    }
+
+    cycleAnimationInFlightRef.current = true;
     cycleTransition.stopAnimation();
-    cycleTransition.setValue(enterFrom === "left" ? -56 : 56);
+    cycleTransition.setValue(enterFrom === "left" ? -cycleTransitionDistance : cycleTransitionDistance);
     requestAnimationFrame(() => {
       Animated.timing(cycleTransition, {
         toValue: 0,
-        duration: 240,
-        useNativeDriver: true,
-      }).start();
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: cycleAnimationDriver,
+      }).start(() => {
+        cycleAnimationInFlightRef.current = false;
+      });
     });
-  }, [cycleTransition]);
+  }, [cycleAnimationDriver, cycleTransition, cycleTransitionDistance]);
+  const resetCycleTransition = useCallback(() => {
+    if (cycleAnimationInFlightRef.current) {
+      return;
+    }
+
+    cycleTransition.stopAnimation();
+    Animated.timing(cycleTransition, {
+      toValue: 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: cycleAnimationDriver,
+    }).start();
+  }, [cycleAnimationDriver, cycleTransition]);
+  const commitCycleSwipe = useCallback((direction: "previous" | "next") => {
+    if (cycleAnimationInFlightRef.current) {
+      return;
+    }
+
+    cycleAnimationInFlightRef.current = true;
+    captureGraphPosition();
+    cycleTransition.stopAnimation();
+
+    const outgoingX = direction === "previous" ? cycleTransitionDistance : -cycleTransitionDistance;
+    const incomingX = -outgoingX;
+    Animated.timing(cycleTransition, {
+      toValue: outgoingX,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: cycleAnimationDriver,
+    }).start(({ finished }) => {
+      if (!finished) {
+        cycleAnimationInFlightRef.current = false;
+        return;
+      }
+
+      setCycleOffset((value) => direction === "previous" ? value - 1 : Math.min(0, value + 1));
+      cycleTransition.setValue(incomingX);
+      requestAnimationFrame(() => {
+        Animated.timing(cycleTransition, {
+          toValue: 0,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: cycleAnimationDriver,
+        }).start(() => {
+          cycleAnimationInFlightRef.current = false;
+        });
+      });
+    });
+  }, [captureGraphPosition, cycleAnimationDriver, cycleTransition, cycleTransitionDistance]);
   const showPreviousCycle = useCallback(() => {
-    if (canNavigateCycles) {
+    if (canNavigateCycles && !cycleAnimationInFlightRef.current) {
       captureGraphPosition();
       // A rightward gesture reveals the previous period from the left, as in
       // a native carousel.
@@ -90,7 +151,7 @@ export default function ReportsScreen() {
     }
   }, [animateCycleChange, canNavigateCycles, captureGraphPosition]);
   const showNextCycle = useCallback(() => {
-    if (cycleOffset < 0) {
+    if (cycleOffset < 0 && !cycleAnimationInFlightRef.current) {
       captureGraphPosition();
       animateCycleChange("right");
       setCycleOffset((value) => Math.min(0, value + 1));
@@ -108,16 +169,37 @@ export default function ReportsScreen() {
         onMoveShouldSetPanResponder: isHorizontalSwipe,
         onMoveShouldSetPanResponderCapture: isHorizontalSwipe,
         onPanResponderTerminationRequest: () => false,
-        onPanResponderRelease: (_, gesture) => {
-          if (gesture.dx > 50) {
-            showPreviousCycle();
-          } else if (gesture.dx < -50 && cycleOffset < 0) {
-            showNextCycle();
+        onPanResponderGrant: () => {
+          if (!cycleAnimationInFlightRef.current) {
+            cycleTransition.stopAnimation();
           }
         },
+        onPanResponderMove: (_, gesture) => {
+          if (cycleAnimationInFlightRef.current) {
+            return;
+          }
+
+          const resistedOffset = gesture.dx < 0 && cycleOffset === 0 ? gesture.dx * 0.2 : gesture.dx;
+          const clampedOffset = Math.max(-cycleTransitionDistance, Math.min(cycleTransitionDistance, resistedOffset));
+          cycleTransition.setValue(clampedOffset);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          if (cycleAnimationInFlightRef.current) {
+            return;
+          }
+
+          if (gesture.dx > 56) {
+            commitCycleSwipe("previous");
+          } else if (gesture.dx < -56 && cycleOffset < 0) {
+            commitCycleSwipe("next");
+          } else {
+            resetCycleTransition();
+          }
+        },
+        onPanResponderTerminate: resetCycleTransition,
       });
     },
-    [canNavigateCycles, cycleOffset, showNextCycle, showPreviousCycle],
+    [canNavigateCycles, commitCycleSwipe, cycleOffset, cycleTransition, cycleTransitionDistance, resetCycleTransition],
   );
   useEffect(() => {
     setCycleOffset(0);
@@ -377,27 +459,32 @@ export default function ReportsScreen() {
         />
         <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
           <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
-            <Animated.View
-              ref={graphAnchorRef}
-              style={[
-                styles.forecastCarouselSlide,
-                { transform: [{ translateX: cycleTransition }] },
-                Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : undefined,
-              ]}
-              {...cyclePanResponder.panHandlers}
+            <View
+              style={styles.forecastCarouselViewport}
+              onLayout={(event) => setCycleViewportWidth(event.nativeEvent.layout.width)}
             >
-              <ForecastChart
-                transactions={transactions}
-                forecast={forecast}
-                currency={user?.currency ?? "USD"}
-                range={range}
-                cycleOffset={cycleOffset}
-                showCycleButtons={showCycleButtons}
-                showPreviousCycle={showPreviousCycle}
-                showNextCycle={showNextCycle}
-                showSwipeHint={supportsTouch && canNavigateCycles}
-              />
-            </Animated.View>
+              <Animated.View
+                ref={graphAnchorRef}
+                style={[
+                  styles.forecastCarouselSlide,
+                  { transform: [{ translateX: cycleTransition }] },
+                  Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : undefined,
+                ]}
+                {...cyclePanResponder.panHandlers}
+              >
+                <ForecastChart
+                  transactions={transactions}
+                  forecast={forecast}
+                  currency={user?.currency ?? "USD"}
+                  range={range}
+                  cycleOffset={cycleOffset}
+                  showCycleButtons={showCycleButtons}
+                  showPreviousCycle={showPreviousCycle}
+                  showNextCycle={showNextCycle}
+                  showSwipeHint={supportsTouch && canNavigateCycles}
+                />
+              </Animated.View>
+            </View>
             {!hasTransactions ? (
               <Text style={styles.emptyText}>No spending recorded in this period. Swipe left to return.</Text>
             ) : null}
@@ -1296,6 +1383,10 @@ function formatHourLabel(hour: number) {
 
 const styles = StyleSheet.create({
   forecastCarouselSlide: {
+    width: "100%",
+  },
+  forecastCarouselViewport: {
+    overflow: "hidden",
     width: "100%",
   },
   cycleButton: {

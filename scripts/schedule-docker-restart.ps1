@@ -21,7 +21,7 @@ if (-not (Test-Path -LiteralPath $monitorScript)) {
 }
 
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
-$scriptArgument = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $monitorScript
+$scriptArgument = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f $monitorScript
 $actionDefinition = New-ScheduledTaskAction -Execute $powershell -Argument $scriptArgument -WorkingDirectory $projectDirectory
 $triggerDefinition = New-ScheduledTaskTrigger `
   -Once `
