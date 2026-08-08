@@ -248,6 +248,9 @@ describe("device backend", () => {
           payload: { clientId: "offline-transaction" },
         },
       ]);
+
+      const transactions = await backend.transactions();
+      expect(transactions).toEqual([transaction]);
     } finally {
       vi.unstubAllGlobals();
     }

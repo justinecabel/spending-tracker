@@ -127,6 +127,14 @@ export function createDeviceBackend(
     async transactions(query?: Record<string, string>): Promise<Transaction[]> {
       const userId = getUserId();
       const cached = offlineCacheStore.getState().transactionsByUser[userId];
+
+      // A refetch is triggered after local mutations so the active query can
+      // refresh its result. Do not send that refetch back to a known-offline
+      // network: the newly saved transaction is already in the device cache.
+      if (isBrowserOffline() && cached !== undefined) {
+        return offlineCacheStore.getState().getTransactions(userId, query);
+      }
+
       try {
         const transactions = await remote.transactions(query);
         offlineCacheStore.getState().setTransactionsForUser(userId, transactions, query);
