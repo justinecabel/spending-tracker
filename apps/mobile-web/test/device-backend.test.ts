@@ -115,6 +115,131 @@ describe("device backend", () => {
     ).resolves.toEqual([]);
   });
 
+  it("keeps the newest remote revisions in the offline cache after a filtered refresh", async () => {
+    const staleTransaction: Transaction = {
+      id: "transaction-1",
+      userId,
+      categoryId: "food",
+      amount: 20,
+      kind: "expense",
+      occurredAt: "2026-08-08T12:00:00.000Z",
+      note: null,
+      merchant: "Cafe",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    const refreshedTransaction: Transaction = {
+      ...staleTransaction,
+      amount: 25,
+      note: "Latest server edit",
+      updatedAt: "2026-08-09T10:00:00.000Z",
+    };
+    const latestTransaction: Transaction = {
+      ...staleTransaction,
+      id: "transaction-2",
+      amount: 30,
+      merchant: "Market",
+      occurredAt: "2026-08-09T11:00:00.000Z",
+      createdAt: "2026-08-09T11:00:00.000Z",
+      updatedAt: "2026-08-09T11:00:00.000Z",
+    };
+    const query = { from: "2026-08-01T00:00:00.000Z" };
+
+    offlineCacheStore.getState().upsertTransaction(userId, staleTransaction);
+    const backend = createDeviceBackend(
+      remoteStorage({
+        transactions: vi.fn(async () => [latestTransaction, refreshedTransaction]),
+      }),
+      () => userId,
+    );
+
+    await expect(backend.transactions(query)).resolves.toEqual([latestTransaction, refreshedTransaction]);
+
+    vi.stubGlobal("navigator", { onLine: false });
+    try {
+      await expect(backend.transactions(query)).resolves.toEqual([latestTransaction, refreshedTransaction]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not let an online refresh erase a local transaction waiting to sync", async () => {
+    const pendingTransaction: Transaction = {
+      id: "pending-transaction",
+      userId,
+      categoryId: "food",
+      amount: 42,
+      kind: "expense",
+      occurredAt: "2026-08-09T12:00:00.000Z",
+      note: "Saved locally",
+      merchant: "Market",
+      createdAt: "2026-08-09T12:00:00.000Z",
+      updatedAt: "2026-08-09T12:00:00.000Z",
+      deletedAt: null,
+    };
+    offlineCacheStore.getState().upsertTransaction(userId, pendingTransaction);
+    offlineQueueStore.getState().enqueue({
+      id: "queued-create",
+      userId,
+      entity: "transaction",
+      action: "create",
+      payload: { clientId: pendingTransaction.id },
+      createdAt: pendingTransaction.createdAt,
+    });
+    const backend = createDeviceBackend(
+      remoteStorage({ transactions: vi.fn(async () => []) }),
+      () => userId,
+    );
+
+    await expect(backend.transactions()).resolves.toEqual([pendingTransaction]);
+
+    vi.stubGlobal("navigator", { onLine: false });
+    try {
+      await expect(backend.transactions()).resolves.toEqual([pendingTransaction]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps a pending local edit newer than the server copy during refresh", async () => {
+    const serverTransaction: Transaction = {
+      id: "transaction-with-pending-edit",
+      userId,
+      categoryId: "food",
+      amount: 10,
+      kind: "expense",
+      occurredAt: "2026-08-09T12:00:00.000Z",
+      note: null,
+      merchant: "Market",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    const pendingTransaction = {
+      ...serverTransaction,
+      amount: 15,
+      note: "Pending tip",
+      updatedAt: "2026-08-09T13:00:00.000Z",
+    };
+    offlineCacheStore.getState().upsertTransaction(userId, pendingTransaction);
+    offlineQueueStore.getState().enqueue({
+      id: "queued-update",
+      userId,
+      entity: "transaction",
+      action: "update",
+      payload: { id: pendingTransaction.id, data: { amount: 15, note: "Pending tip" } },
+      createdAt: pendingTransaction.updatedAt,
+    });
+    const backend = createDeviceBackend(
+      remoteStorage({ transactions: vi.fn(async () => [serverTransaction]) }),
+      () => userId,
+    );
+
+    await expect(backend.transactions()).resolves.toEqual([pendingTransaction]);
+    expect(offlineCacheStore.getState().getTransactions(userId)).toEqual([pendingTransaction]);
+  });
+
   it("stores an unavailable debt create locally and queues an idempotent remote mutation", async () => {
     const otherCategory: Category = {
       id: "other",

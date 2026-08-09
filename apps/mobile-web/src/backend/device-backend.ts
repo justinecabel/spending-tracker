@@ -30,6 +30,36 @@ function sortTransactions(transactions: Transaction[]) {
   );
 }
 
+function overlayPendingTransactions(
+  userId: string,
+  remoteTransactions: Transaction[],
+  query?: Record<string, string>,
+) {
+  const pendingIds = new Set(
+    offlineQueueStore.getState().mutations.flatMap((mutation) => {
+      if (mutation.userId !== userId || mutation.entity !== "transaction" || mutation.action === "delete") {
+        return [];
+      }
+
+      const payload = mutation.payload as { clientId?: string; id?: string };
+      const id = mutation.action === "create" ? payload.clientId : payload.id;
+      return id ? [id] : [];
+    }),
+  );
+  if (pendingIds.size === 0) {
+    return remoteTransactions;
+  }
+
+  const pendingLocal = offlineCacheStore
+    .getState()
+    .getTransactions(userId, query)
+    .filter((transaction) => pendingIds.has(transaction.id));
+  return sortTransactions([
+    ...remoteTransactions.filter((transaction) => !pendingIds.has(transaction.id)),
+    ...pendingLocal,
+  ]);
+}
+
 function sortDebts(debts: Debt[]) {
   return [...debts].sort(
     (left, right) =>
@@ -136,7 +166,7 @@ export function createDeviceBackend(
       }
 
       try {
-        const transactions = await remote.transactions(query);
+        const transactions = overlayPendingTransactions(userId, await remote.transactions(query), query);
         offlineCacheStore.getState().setTransactionsForUser(userId, transactions, query);
         return transactions;
       } catch (error) {

@@ -132,7 +132,10 @@ export const offlineCacheStore = create<OfflineCacheState>()(
             transactionsByUser: {
               ...state.transactionsByUser,
               [userId]: sortTransactions(
-                dedupeTransactions(isFullCollection ? transactions : [...transactions, ...current]),
+                // Map de-duplication keeps the last value for an ID. Put the
+                // remote result last so an online refresh replaces an older
+                // cached revision instead of persisting the stale copy.
+                dedupeTransactions(isFullCollection ? transactions : [...current, ...transactions]),
               ),
             },
           };

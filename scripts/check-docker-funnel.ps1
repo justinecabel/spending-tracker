@@ -165,15 +165,34 @@ try {
     exit 1
   }
 
-  Write-Output "Restarting the Docker API/Tailscale stack to recover the Funnel."
-  & $docker.Source compose restart
+  Write-Output "Recreating the Docker API/Tailscale stack to recover the Funnel."
+  # The API uses `network_mode: service:tailscale`. Restarting the Tailscale
+  # container can replace its network namespace while leaving the API attached
+  # to the old one, causing Funnel to proxy to an empty 127.0.0.1:4000. Recreate
+  # both containers together so they share the same fresh namespace.
+  & $docker.Source compose up -d --no-build --force-recreate tailscale api
   if ($LASTEXITCODE -ne 0) {
-    & $docker.Source compose up -d --no-build
-    if ($LASTEXITCODE -ne 0) {
-      throw "Docker Compose could not recover the API/Tailscale stack."
+    throw "Docker Compose could not recover the API/Tailscale stack."
+  }
+
+  $recovered = $false
+  for ($attempt = 1; $attempt -le 12; $attempt++) {
+    Start-Sleep -Seconds 5
+    try {
+      if (Test-PublicFunnel -Domain $domain) {
+        $recovered = $true
+        break
+      }
+    } catch {
+      # The Funnel relay can take a few seconds to reconnect after recreation.
     }
   }
 
+  if (-not $recovered) {
+    throw "Docker Compose restarted, but the public Funnel did not recover."
+  }
+
   Write-MonitorState -ConsecutiveFailures 0
+  Write-Output "Docker Funnel recovered: https://$domain/health"
   exit 0
 }

@@ -45,7 +45,18 @@ function readCurrentStorageHandoff(): PwaStorageHandoff {
     }
   }
 
-  return { version: 2, savedAt: new Date().toISOString(), data };
+  return { version: 3, savedAt: new Date().toISOString(), data };
+}
+
+export function shouldApplyPwaHandoffValue(key: string, currentValue: string | null) {
+  if (!key.startsWith(APP_STORAGE_PREFIX) || key === PWA_HANDOFF_KEY || key === PWA_HANDOFF_APPLIED_KEY) {
+    return false;
+  }
+
+  // A handoff can come from an older browser tab whose snapshot was captured
+  // later than this installed PWA's state. It may seed a fresh container, but
+  // must never replace device-owned cache, queued writes, or credentials.
+  return currentValue === null;
 }
 
 function encodeCookiePayload(value: string) {
@@ -126,7 +137,7 @@ function applyStorageHandoff(handoff: PwaStorageHandoff | null) {
   }
 
   for (const [key, value] of Object.entries(handoff.data ?? {})) {
-    if (!key.startsWith(APP_STORAGE_PREFIX) || key === PWA_HANDOFF_KEY || key === PWA_HANDOFF_APPLIED_KEY) {
+    if (!shouldApplyPwaHandoffValue(key, window.localStorage.getItem(key))) {
       continue;
     }
     window.localStorage.setItem(key, value);
