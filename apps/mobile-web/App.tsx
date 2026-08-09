@@ -128,6 +128,7 @@ function AppShell() {
   const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus({ autoApplyWaitingUpdate: !accessToken });
   const { status: backendStatus, retry: retryBackend } = useBackendAvailability();
   const previousBackendStatus = useRef(backendStatus);
+  const showBackendStatus = isOnline && backendStatus !== "available";
 
   const { staleLinkedProfileUserId } = useBootstrapSession();
   useSyncQueue(accessToken ? userId : null);
@@ -319,21 +320,17 @@ function AppShell() {
             </Pressable>
           ))}
         </View>
-        {updateAvailable || !isOnline || pendingSyncCount > 0 || backendStatus !== "available" ? (
-          <View style={[styles.syncBanner, { backgroundColor: isOnline ? palette.accentSoft : palette.field, borderTopColor: palette.border }]}>
-            {backendStatus !== "available" ? <View style={[styles.syncStatusDot, { backgroundColor: backendStatus === "unavailable" ? palette.warning : palette.accent }]} /> : null}
-            <Text style={[styles.syncBannerText, styles.syncBannerMessage, { color: isOnline ? palette.accent : palette.warning }]}>
-              {backendStatus === "unavailable"
+        {updateAvailable || showBackendStatus ? (
+          <View style={[styles.syncBanner, { backgroundColor: palette.accentSoft, borderTopColor: palette.border }]}>
+            {showBackendStatus ? <View style={[styles.syncStatusDot, { backgroundColor: backendStatus === "unavailable" ? palette.warning : palette.accent }]} /> : null}
+            <Text style={[styles.syncBannerText, styles.syncBannerMessage, { color: palette.accent }]}>
+              {showBackendStatus && backendStatus === "unavailable"
                 ? "Remote storage unavailable — using data saved on this device."
-                : backendStatus === "checking"
+                : showBackendStatus && backendStatus === "checking"
                 ? "Checking remote storage..."
-                : updateAvailable
-                ? "A new version is ready. Reload to update the app."
-                : isOnline
-                ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} waiting to sync`
-                : `${pendingSyncCount ? `${pendingSyncCount} change${pendingSyncCount === 1 ? "" : "s"} saved on device · ` : ""}Offline — using device data`}
+                : "A new version is ready. Reload to update the app."}
             </Text>
-            {backendStatus === "unavailable" ? (
+            {showBackendStatus && backendStatus === "unavailable" ? (
               <Pressable style={styles.updateButton} onPress={retryBackend}>
                 <Text style={styles.updateButtonText}>Retry</Text>
               </Pressable>
@@ -351,7 +348,14 @@ function AppShell() {
         {activeTab === "transactions" ? <TransactionsScreen /> : null}
         {activeTab === "debts" ? <DebtsScreen /> : null}
         {activeTab === "reports" ? <ReportsScreen /> : null}
-        {activeTab === "settings" ? <SettingsScreen /> : null}
+        {activeTab === "settings" ? (
+          <SettingsScreen
+            isOnline={isOnline}
+            backendStatus={backendStatus}
+            pendingSyncCount={pendingSyncCount}
+            onRetryConnection={retryBackend}
+          />
+        ) : null}
       </View>
     </View>
   );

@@ -11,6 +11,7 @@ import { appearanceStore, getAppearanceProfileKey } from "../../src/state/appear
 import { summaryRangeStore, type SummaryRangeMode } from "../../src/state/summary-range";
 import { sessionStore } from "../../src/state/session";
 import { offlineQueueStore } from "../../src/state/offline-queue";
+import type { BackendStatus } from "../../src/hooks/use-backend-availability";
 import { applyThemeMode, normalizeCustomAccent, theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
 
@@ -23,7 +24,19 @@ const rangeModes: Array<{ key: SummaryRangeMode; label: string }> = [
   { key: "smart-pay-cycle", label: "Smart pay cycle" },
 ];
 
-export default function SettingsScreen() {
+type SettingsScreenProps = {
+  isOnline: boolean;
+  backendStatus: BackendStatus;
+  pendingSyncCount: number;
+  onRetryConnection: () => void;
+};
+
+export default function SettingsScreen({
+  isOnline,
+  backendStatus,
+  pendingSyncCount,
+  onRetryConnection,
+}: SettingsScreenProps) {
   const { width } = useWindowDimensions();
   const deviceScheme = useColorScheme();
   const user = sessionStore((state) => state.user);
@@ -181,6 +194,29 @@ export default function SettingsScreen() {
   const canForgetLinkedProfile = activeProfile === "linked" && Boolean(activeLinkedProfileUserId);
   const hasMultipleProfiles = Boolean(deviceProfile) && hasLinkedProfiles;
   const modalCardWidth = Math.min(Math.max(width - 40, 280), 560);
+  const connectionMode = !isOnline
+    ? {
+        label: "Device mode",
+        detail: "Using data saved on this device. Changes will sync automatically when a connection returns.",
+        color: theme.colors.accent,
+      }
+    : backendStatus === "available"
+      ? {
+          label: "Connected",
+          detail: "Remote sync is available and device data stays ready for offline use.",
+          color: theme.colors.success,
+        }
+      : backendStatus === "checking"
+        ? {
+            label: "Checking",
+            detail: "Checking whether remote sync is available. Device features remain usable.",
+            color: theme.colors.accent,
+          }
+        : {
+            label: "Device mode",
+            detail: "Remote sync is temporarily unavailable. Device features remain usable.",
+            color: theme.colors.warning,
+          };
 
   return (
     <ScreenContainer screenKey="settings">
@@ -253,6 +289,27 @@ export default function SettingsScreen() {
               <Text style={styles.signOutButtonText}>Sign out</Text>
             </Pressable>
           </View>
+        </View>
+      </Card>
+      <Card>
+        <SectionTitle
+          title="Connection mode"
+          subtitle="The app stores working data on this device and syncs automatically when remote storage is available."
+        />
+        <View style={styles.connectionRow}>
+          <View style={[styles.connectionDot, { backgroundColor: connectionMode.color }]} />
+          <View style={styles.connectionCopy}>
+            <Text style={styles.value}>{connectionMode.label}</Text>
+            <Text style={styles.helperText}>{connectionMode.detail}</Text>
+            {pendingSyncCount > 0 ? (
+              <Text style={styles.helperText}>
+                {pendingSyncCount} saved change{pendingSyncCount === 1 ? "" : "s"} waiting to sync.
+              </Text>
+            ) : null}
+          </View>
+          {isOnline && backendStatus === "unavailable" ? (
+            <PillButton label="Retry" tone="ghost" onPress={onRetryConnection} />
+          ) : null}
         </View>
       </Card>
       <Card>
@@ -724,6 +781,23 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
     paddingTop: 12,
+  },
+  connectionRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  connectionDot: {
+    borderRadius: 999,
+    height: 10,
+    marginTop: 7,
+    width: 10,
+  },
+  connectionCopy: {
+    flexBasis: 220,
+    flexGrow: 1,
+    gap: 4,
   },
   label: {
     color: theme.colors.muted,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../lib/api";
 
-type BackendStatus = "checking" | "available" | "unavailable";
+export type BackendStatus = "checking" | "available" | "unavailable";
 
 /** Keeps the shell in a reconnecting state while the API host is reachable again. */
 export function useBackendAvailability() {
