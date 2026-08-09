@@ -70,6 +70,9 @@ export type ForecastAnalysis = {
   observedDays: number;
   activeDays: number;
   transactionCount: number;
+  previousPeriodTotal: number | null;
+  previousPeriodWeight: number;
+  recurringProjectedTotal: number;
   points: ForecastPoint[];
   categories: CategoryForecast[];
   recurring: RecurringPattern[];
@@ -90,12 +93,18 @@ type DayBucket = {
   amount: number;
 };
 
+type DetectedRecurringPattern = RecurringPattern & {
+  transactionIds: string[];
+};
+
 const DAY_MS = 86_400_000;
 const WEEKDAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export function buildForecastAnalysis(input: ForecastAnalysisInput): ForecastAnalysis {
   const now = startOfDay(asDate(input.now ?? new Date()));
-  const allTransactions = uniqueTransactions([...(input.transactions ?? []), ...(input.historyTransactions ?? [])])
+  // The selected-period query is the freshest source. Put it last so an older
+  // history cache cannot roll back an edited or restored transaction.
+  const allTransactions = uniqueTransactions([...(input.historyTransactions ?? []), ...(input.transactions ?? [])])
     .filter(isExpense)
     .sort((left, right) => new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime());
   const earliest = allTransactions.length ? startOfDay(new Date(allTransactions[0]!.occurredAt)) : now;
@@ -121,13 +130,21 @@ export function buildForecastAnalysis(input: ForecastAnalysisInput): ForecastAna
     const date = new Date(transaction.occurredAt);
     return date >= baselineStart && date <= observedEnd;
   });
+  const detectedRecurringPatterns = detectRecurringPatterns(allTransactions, input.categories, observedEnd, forecastEnd);
+  const recurringTransactionIds = new Set(
+    detectedRecurringPatterns.flatMap((pattern) => pattern.transactionIds),
+  );
+  const recurrencePatterns = detectedRecurringPatterns.map(({ transactionIds: _transactionIds, ...pattern }) => pattern);
+  const baselineDiscretionaryTransactions = baselineTransactions.filter(
+    (transaction) => !recurringTransactionIds.has(transaction.id),
+  );
   const dayBuckets = listDates(baselineStart, observedEnd).map((date) => ({
     key: dateKey(date),
     date,
     amount: 0,
   }));
   const dayIndex = new Map(dayBuckets.map((bucket, index) => [bucket.key, index]));
-  for (const transaction of baselineTransactions) {
+  for (const transaction of baselineDiscretionaryTransactions) {
     const index = dayIndex.get(dateKey(new Date(transaction.occurredAt)));
     if (index !== undefined) {
       dayBuckets[index]!.amount += transaction.amount;
@@ -148,31 +165,73 @@ export function buildForecastAnalysis(input: ForecastAnalysisInput): ForecastAna
   const weekdayFutureRate = futureDays
     ? sum(futureDates.map((date) => weekdayRates[date.getDay()] ?? robustRate)) / futureDays
     : robustRate;
-  const recurrencePatterns = detectRecurringPatterns(allTransactions, input.categories, observedEnd, forecastEnd);
-  const recurringRate = futureDays
-    ? sum(recurrencePatterns.map((pattern) => pattern.projectedTotal)) / futureDays
-    : 0;
-  const transactionCount = allTransactions.length;
+  const transactionCount = baselineTransactions.length;
   const dataTier = transactionCount < 14 ? "sparse" : activeDays < 14 ? "moderate" : "strong";
-  const recurrenceWeight = recurrencePatterns.length && dataTier === "strong" ? 0.15 : 0;
   const baseWeight = dataTier === "sparse" ? 0.7 : dataTier === "moderate" ? 0.55 : 0.4;
   const historicalWeight = dataTier === "sparse" ? 0.3 : dataTier === "moderate" ? 0.25 : 0.2;
-  const weekdayWeight = 1 - baseWeight - historicalWeight - recurrenceWeight;
+  const weekdayWeight = 1 - baseWeight - historicalWeight;
   const blendedRate = Math.max(
     0,
     recentRate * baseWeight +
       robustRate * historicalWeight +
-      weekdayFutureRate * weekdayWeight +
-      recurringRate * recurrenceWeight,
+      weekdayFutureRate * weekdayWeight,
   );
-  const trendMultiplier = cappedTrendMultiplier(dayBuckets);
-  const futureDailyRates = futureDates.map((date) => {
+  const trendMultiplier = cappedTrendMultiplier(dailyValues);
+  const rawFutureDiscretionaryRates = futureDates.map((date) => {
     const weekdayRatio = robustRate > 0 ? clamp((weekdayRates[date.getDay()] ?? robustRate) / robustRate, 0.55, 1.8) : 1;
     return Math.max(0, blendedRate * trendMultiplier * weekdayRatio);
   });
-  const futureTotal = sum(futureDailyRates);
+  const rawFutureDiscretionaryTotal = sum(rawFutureDiscretionaryRates);
+  const actualDiscretionaryTotal = sum(
+    actualTransactions
+      .filter((transaction) => !recurringTransactionIds.has(transaction.id))
+      .map((transaction) => transaction.amount),
+  );
+  const previousPeriod = comparablePreviousPeriod(periodStart, forecastEnd);
+  const previousPeriodTransactions = allTransactions.filter((transaction) => {
+    const date = new Date(transaction.occurredAt);
+    return date >= previousPeriod.start && date <= previousPeriod.end;
+  });
+  const previousPeriodDiscretionaryTotal = sum(
+    previousPeriodTransactions
+      .filter((transaction) => !recurringTransactionIds.has(transaction.id))
+      .map((transaction) => transaction.amount),
+  );
+  const periodDays = daysBetween(periodStart, forecastEnd);
+  const periodProgress = clamp(observedDays / periodDays, 0, 1);
+  const hasPreviousPeriod = previousPeriodTransactions.length >= 3;
+  const previousPeriodWeight = futureDays > 0 && hasPreviousPeriod
+    ? Math.min(0.65, 0.75 * Math.sqrt(1 - periodProgress))
+    : 0;
+  const unanchoredDiscretionaryTotal = actualDiscretionaryTotal + rawFutureDiscretionaryTotal;
+  const anchoredDiscretionaryTotal =
+    unanchoredDiscretionaryTotal * (1 - previousPeriodWeight) +
+    previousPeriodDiscretionaryTotal * previousPeriodWeight;
+  const futureDiscretionaryTotal = Math.max(0, anchoredDiscretionaryTotal - actualDiscretionaryTotal);
+  const recurringProjectedTotal = sum(recurrencePatterns.map((pattern) => pattern.projectedTotal));
+  const rawDiscretionaryScale = rawFutureDiscretionaryTotal > 0
+    ? futureDiscretionaryTotal / rawFutureDiscretionaryTotal
+    : 0;
+  const recurringByDate = buildRecurringAmountsByDate(detectedRecurringPatterns, forecastEnd);
+  const futureDailyRates = futureDates.map((date, index) => {
+    const discretionary = rawFutureDiscretionaryTotal > 0
+      ? (rawFutureDiscretionaryRates[index] ?? 0) * rawDiscretionaryScale
+      : futureDays > 0
+        ? futureDiscretionaryTotal / futureDays
+        : 0;
+    return discretionary + (recurringByDate.get(dateKey(date)) ?? 0);
+  });
+  const futureTotal = futureDiscretionaryTotal + recurringProjectedTotal;
   const projectedTotal = actualTotal + futureTotal;
-  const confidence = calculateConfidence(transactionCount, activeDays, dayBuckets.length, recurrencePatterns, dailyValues);
+  const confidence = calculateConfidence(
+    transactionCount,
+    activeDays,
+    dayBuckets.length,
+    recurrencePatterns,
+    dailyValues,
+    observedDays,
+    periodDays,
+  );
   const confidenceLabel: ForecastConfidenceLabel = confidence >= 0.75 ? "High" : confidence >= 0.5 ? "Medium" : "Low";
   const volatility = standardDeviation(dailyValues);
   const uncertainty = futureDays
@@ -180,10 +239,28 @@ export function buildForecastAnalysis(input: ForecastAnalysisInput): ForecastAna
     : 0;
   const forecastLow = Math.max(actualTotal, projectedTotal - uncertainty);
   const forecastHigh = projectedTotal + uncertainty;
-  const categories = buildCategoryForecasts(actualTransactions, allTransactions, input.categories, input.budgets ?? [], periodStart, forecastEnd, futureTotal);
+  const categories = buildCategoryForecasts(
+    actualTransactions,
+    allTransactions,
+    input.categories,
+    input.budgets ?? [],
+    periodStart,
+    forecastEnd,
+    futureDiscretionaryTotal,
+    recurrencePatterns,
+    recurringTransactionIds,
+  );
   const budget = buildBudgetComparison(actualTotal, projectedTotal, input.budgets ?? [], periodStart, forecastEnd, futureDays);
   const points = buildForecastPoints(periodStart, forecastEnd, observedEnd, actualTransactions, futureDates, futureDailyRates, volatility, confidence);
-  const confidenceReasons = buildConfidenceReasons(transactionCount, activeDays, dayBuckets.length, recurrencePatterns, volatility, confidenceLabel);
+  const confidenceReasons = buildConfidenceReasons(
+    transactionCount,
+    activeDays,
+    dayBuckets.length,
+    recurrencePatterns,
+    volatility,
+    confidenceLabel,
+    previousPeriodWeight,
+  );
   const dataQualityNotes = buildDataQualityNotes(allTransactions, actualTransactions, input.categories, transactionCount, volatility);
   const topMerchants = buildTopMerchants(actualTransactions);
   const weekdayTotals = buildWeekdayTotals(actualTransactions);
@@ -205,6 +282,11 @@ export function buildForecastAnalysis(input: ForecastAnalysisInput): ForecastAna
     observedDays,
     activeDays,
     transactionCount,
+    previousPeriodTotal: hasPreviousPeriod
+      ? sum(previousPeriodTransactions.map((transaction) => transaction.amount))
+      : null,
+    previousPeriodWeight,
+    recurringProjectedTotal,
     points,
     categories,
     recurring: recurrencePatterns,
@@ -260,27 +342,50 @@ function buildCategoryForecasts(
   budgets: Budget[],
   periodStart: Date,
   forecastEnd: Date,
-  futureTotal: number,
+  futureDiscretionaryTotal: number,
+  recurring: RecurringPattern[],
+  recurringTransactionIds: Set<string>,
 ): CategoryForecast[] {
   const categoryMap = new Map(categories.map((category) => [category.id, category]));
   const recentStart = addDays(forecastEnd, -89);
   const historyTotals = new Map<string, number>();
   for (const transaction of allTransactions) {
     const date = new Date(transaction.occurredAt);
-    if (date >= recentStart && date <= forecastEnd) {
+    if (date >= recentStart && date <= forecastEnd && !recurringTransactionIds.has(transaction.id)) {
       historyTotals.set(transaction.categoryId, (historyTotals.get(transaction.categoryId) ?? 0) + transaction.amount);
     }
   }
   const historyTotal = sum(Array.from(historyTotals.values()));
   const actualTotals = new Map<string, number>();
+  const actualDiscretionaryTotals = new Map<string, number>();
   for (const transaction of actualTransactions) {
     actualTotals.set(transaction.categoryId, (actualTotals.get(transaction.categoryId) ?? 0) + transaction.amount);
+    if (!recurringTransactionIds.has(transaction.id)) {
+      actualDiscretionaryTotals.set(
+        transaction.categoryId,
+        (actualDiscretionaryTotals.get(transaction.categoryId) ?? 0) + transaction.amount,
+      );
+    }
   }
-  const keys = new Set([...historyTotals.keys(), ...actualTotals.keys()]);
+  const actualDiscretionaryTotal = sum(Array.from(actualDiscretionaryTotals.values()));
+  const recurringTotals = new Map<string, number>();
+  for (const pattern of recurring) {
+    const categoryId = pattern.categoryId ?? "";
+    recurringTotals.set(categoryId, (recurringTotals.get(categoryId) ?? 0) + pattern.projectedTotal);
+  }
+  const futureTotal = futureDiscretionaryTotal + sum(Array.from(recurringTotals.values()));
+  const keys = new Set([...historyTotals.keys(), ...actualTotals.keys(), ...recurringTotals.keys()]);
   return Array.from(keys)
     .map((categoryId) => {
-      const share = historyTotal ? (historyTotals.get(categoryId) ?? 0) / historyTotal : 0;
-      const projected = (actualTotals.get(categoryId) ?? 0) + futureTotal * share;
+      const discretionaryShare = historyTotal
+        ? (historyTotals.get(categoryId) ?? 0) / historyTotal
+        : actualDiscretionaryTotal
+          ? (actualDiscretionaryTotals.get(categoryId) ?? 0) / actualDiscretionaryTotal
+          : keys.size
+            ? 1 / keys.size
+            : 0;
+      const categoryFuture = futureDiscretionaryTotal * discretionaryShare + (recurringTotals.get(categoryId) ?? 0);
+      const projected = (actualTotals.get(categoryId) ?? 0) + categoryFuture;
       const budget = budgetForCategory(budgets, categoryId, periodStart, forecastEnd);
       return {
         categoryId,
@@ -289,7 +394,7 @@ function buildCategoryForecasts(
         projected,
         budget,
         variance: budget === null ? null : budget - projected,
-        share: futureTotal ? (futureTotal * share) / futureTotal : 0,
+        share: futureTotal ? categoryFuture / futureTotal : 0,
       };
     })
     .sort((left, right) => right.projected - left.projected);
@@ -321,7 +426,12 @@ function budgetForCategory(budgets: Budget[], categoryId: string | null, start: 
   }, 0);
 }
 
-function detectRecurringPatterns(transactions: Transaction[], categories: Category[], observedEnd: Date, forecastEnd: Date): RecurringPattern[] {
+function detectRecurringPatterns(
+  transactions: Transaction[],
+  categories: Category[],
+  observedEnd: Date,
+  forecastEnd: Date,
+): DetectedRecurringPattern[] {
   const categoryMap = new Map(categories.map((category) => [category.id, category.name]));
   const lookbackStart = addDays(observedEnd, -365);
   const groups = new Map<string, Transaction[]>();
@@ -333,9 +443,11 @@ function detectRecurringPatterns(transactions: Transaction[], categories: Catego
     groups.set(key, [...(groups.get(key) ?? []), transaction]);
   }
   return Array.from(groups.values())
-    .map((events): RecurringPattern | null => {
+    .map((events): DetectedRecurringPattern | null => {
       const sorted = events.slice().sort((left, right) => new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime());
-      if (sorted.length < 3) return null;
+      const merchant = normalizeMerchant(sorted[0]?.merchant ?? null);
+      const minimumEvents = merchant ? 3 : 4;
+      if (sorted.length < minimumEvents) return null;
       const dates = sorted.map((event) => startOfDay(new Date(event.occurredAt)));
       const intervals = dates.slice(1).map((date, index) => Math.max(1, Math.round((date.getTime() - dates[index]!.getTime()) / DAY_MS)));
       const intervalDays = Math.round(median(intervals));
@@ -345,7 +457,8 @@ function detectRecurringPatterns(transactions: Transaction[], categories: Catego
       const amounts = sorted.map((event) => event.amount);
       const amountMedian = median(amounts);
       const amountConsistency = consistency(amounts, amountMedian);
-      if (intervalConsistency < 0.55 || amountConsistency < 0.55) return null;
+      const consistencyThreshold = merchant ? 0.55 : 0.75;
+      if (intervalConsistency < consistencyThreshold || amountConsistency < consistencyThreshold) return null;
       const lastDate = dates[dates.length - 1]!;
       let nextDate = addDays(lastDate, intervalDays);
       let expectedOccurrences = 0;
@@ -353,9 +466,9 @@ function detectRecurringPatterns(transactions: Transaction[], categories: Catego
         if (nextDate > observedEnd) expectedOccurrences += 1;
         nextDate = addDays(nextDate, intervalDays);
       }
-      const merchant = normalizeMerchant(sorted[0]!.merchant);
       const categoryId = sorted[0]!.categoryId || null;
       const label = merchant ? sorted[0]!.merchant!.trim() : categoryMap.get(categoryId ?? "") ?? "Uncategorized";
+      const confidence = (intervalConsistency + amountConsistency) / 2;
       return {
         label,
         categoryId,
@@ -365,11 +478,14 @@ function detectRecurringPatterns(transactions: Transaction[], categories: Catego
         expectedAmount: amountMedian,
         nextDate: expectedOccurrences ? dateKey(addDays(lastDate, intervalDays)) : null,
         expectedOccurrences,
-        projectedTotal: amountMedian * expectedOccurrences,
-        confidence: (intervalConsistency + amountConsistency) / 2,
-      } satisfies RecurringPattern;
+        // Recurrence is an expected value, not a guaranteed bill. Less
+        // consistent timing or amounts contribute proportionally less.
+        projectedTotal: amountMedian * expectedOccurrences * confidence,
+        confidence,
+        transactionIds: sorted.map((transaction) => transaction.id),
+      } satisfies DetectedRecurringPattern;
     })
-    .filter((pattern): pattern is RecurringPattern => pattern !== null && pattern.expectedOccurrences > 0)
+    .filter((pattern): pattern is DetectedRecurringPattern => pattern !== null && pattern.expectedOccurrences > 0)
     .sort((left, right) => right.projectedTotal - left.projectedTotal)
     .slice(0, 5);
 }
@@ -418,10 +534,19 @@ function buildUnusualTransactions(transactions: Transaction[], cap: number, cate
     }));
 }
 
-function buildConfidenceReasons(transactionCount: number, activeDays: number, windowDays: number, recurring: RecurringPattern[], volatility: number, label: ForecastConfidenceLabel) {
+function buildConfidenceReasons(
+  transactionCount: number,
+  activeDays: number,
+  windowDays: number,
+  recurring: RecurringPattern[],
+  volatility: number,
+  label: ForecastConfidenceLabel,
+  previousPeriodWeight: number,
+) {
   const reasons = [`${label} confidence from ${transactionCount} transactions across ${activeDays} active days`];
   if (windowDays > 0 && activeDays / windowDays < 0.2) reasons.push("Spending happens on relatively few days");
   if (recurring.length) reasons.push(`${recurring.length} recurring pattern${recurring.length === 1 ? "" : "s"} detected`);
+  if (previousPeriodWeight > 0) reasons.push("The previous comparable period stabilizes the early estimate");
   if (volatility > 0) reasons.push("Daily variation is included in the forecast range");
   return reasons;
 }
@@ -470,9 +595,9 @@ function exponentiallyWeightedRate(values: number[]) {
   return weightTotal ? weightedTotal / weightTotal : 0;
 }
 
-function cappedTrendMultiplier(buckets: DayBucket[]) {
-  const recent = buckets.slice(-30).map((bucket) => bucket.amount);
-  const previous = buckets.slice(-60, -30).map((bucket) => bucket.amount);
+function cappedTrendMultiplier(values: number[]) {
+  const recent = values.slice(-30);
+  const previous = values.slice(-60, -30);
   if (!previous.length) return 1;
   const recentRate = sum(recent) / recent.length;
   const previousRate = sum(previous) / previous.length;
@@ -480,14 +605,63 @@ function cappedTrendMultiplier(buckets: DayBucket[]) {
   return clamp(recentRate / previousRate, 0.75, 1.25);
 }
 
-function calculateConfidence(transactionCount: number, activeDays: number, windowDays: number, recurring: RecurringPattern[], values: number[]) {
+function calculateConfidence(
+  transactionCount: number,
+  activeDays: number,
+  windowDays: number,
+  recurring: RecurringPattern[],
+  values: number[],
+  observedDays: number,
+  periodDays: number,
+) {
   const historyScore = clamp(transactionCount / 60, 0, 1);
   const coverageScore = clamp(activeDays / 45, 0, 1);
   const recurrenceScore = recurring.length ? recurring.reduce((total, pattern) => total + pattern.confidence, 0) / recurring.length : 0.35;
   const stabilityValues = values.filter((value) => value > 0);
   const mean = sum(stabilityValues) / Math.max(stabilityValues.length, 1);
   const stabilityScore = mean ? clamp(1 - standardDeviation(stabilityValues) / (mean * 2), 0, 1) : 0;
-  return clamp(historyScore * 0.4 + coverageScore * 0.3 + recurrenceScore * 0.15 + stabilityScore * 0.15, 0, 1);
+  const progressScore = clamp(observedDays / Math.max(periodDays, 1), 0, 1);
+  return clamp(
+    historyScore * 0.3 +
+      coverageScore * 0.25 +
+      recurrenceScore * 0.15 +
+      stabilityScore * 0.15 +
+      progressScore * 0.15,
+    0,
+    1,
+  );
+}
+
+function comparablePreviousPeriod(periodStart: Date, forecastEnd: Date) {
+  const isCalendarMonth =
+    periodStart.getDate() === 1 &&
+    forecastEnd.getFullYear() === periodStart.getFullYear() &&
+    forecastEnd.getMonth() === periodStart.getMonth() &&
+    forecastEnd.getDate() === endOfMonth(periodStart).getDate();
+  if (isCalendarMonth) {
+    const start = new Date(periodStart.getFullYear(), periodStart.getMonth() - 1, 1);
+    return { start, end: endOfMonth(start) };
+  }
+
+  const periodDays = daysBetween(periodStart, forecastEnd);
+  const end = endOfDay(addDays(periodStart, -1));
+  return { start: startOfDay(addDays(end, -(periodDays - 1))), end };
+}
+
+function buildRecurringAmountsByDate(patterns: DetectedRecurringPattern[], forecastEnd: Date) {
+  const amounts = new Map<string, number>();
+  for (const pattern of patterns) {
+    if (!pattern.nextDate) continue;
+    let date = new Date(`${pattern.nextDate}T00:00:00`);
+    let remaining = pattern.expectedOccurrences;
+    while (remaining > 0 && date <= forecastEnd) {
+      const key = dateKey(date);
+      amounts.set(key, (amounts.get(key) ?? 0) + pattern.expectedAmount);
+      date = addDays(date, pattern.intervalDays);
+      remaining -= 1;
+    }
+  }
+  return amounts;
 }
 
 function robustCap(values: number[]) {

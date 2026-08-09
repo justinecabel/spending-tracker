@@ -95,6 +95,64 @@ describe("buildForecastAnalysis", () => {
     expect(result.recurring[0]?.cadence).toBe("Monthly");
     expect(result.recurring[0]?.expectedAmount).toBe(50);
     expect(result.recurring[0]?.expectedOccurrences).toBeGreaterThan(0);
+    expect(result.recurringProjectedTotal).toBeCloseTo(49.6, 1);
+    expect(result.actualTotal).toBe(50);
+    expect(result.projectedTotal).toBeCloseTo(99.6, 1);
+  });
+
+  test("keeps the fresh selected-period revision over stale history", () => {
+    const fresh = transaction("same-id", "2026-07-10", 100);
+    const stale = { ...fresh, amount: 10, updatedAt: "2026-07-10T11:00:00.000Z" };
+    const result = buildForecastAnalysis({
+      transactions: [fresh],
+      historyTransactions: [stale],
+      categories: [category],
+      range: {
+        title: "Closed range",
+        from: localIso(2026, 7, 1),
+        to: localIso(2026, 7, 15, 23, 59, 59, 999),
+        forecastTo: localIso(2026, 7, 15, 23, 59, 59, 999),
+      },
+      now: "2026-07-15T12:00:00.000Z",
+    });
+
+    expect(result.actualTotal).toBe(100);
+  });
+
+  test("uses the previous comparable month to stabilize an early forecast", () => {
+    const previousMonth = Array.from({ length: 10 }, (_, index) =>
+      transaction(`previous-${index}`, `2026-06-${String(20 + index).padStart(2, "0")}`, 30, `Shop ${index}`),
+    );
+    const currentMonth = [transaction("current", "2026-07-05", 40, "Current")];
+    const result = buildForecastAnalysis({
+      transactions: currentMonth,
+      historyTransactions: [...previousMonth, ...currentMonth],
+      categories: [category],
+      range,
+      now: "2026-07-07T12:00:00.000Z",
+    });
+
+    expect(result.previousPeriodTotal).toBe(300);
+    expect(result.previousPeriodWeight).toBe(0.65);
+    expect(result.projectedTotal).toBeGreaterThan(result.actualTotal);
+    expect(result.confidenceReasons).toContain("The previous comparable period stabilizes the early estimate");
+  });
+
+  test("bases evidence tier on the recent 90-day window", () => {
+    const oldHistory = Array.from({ length: 60 }, (_, index) =>
+      transaction(`old-${index}`, `2025-01-${String((index % 28) + 1).padStart(2, "0")}`, 10, `Old ${index}`),
+    );
+    const current = transaction("current", "2026-07-10", 20, "Current");
+    const result = buildForecastAnalysis({
+      transactions: [current],
+      historyTransactions: [...oldHistory, current],
+      categories: [category],
+      range,
+      now: "2026-07-15T12:00:00.000Z",
+    });
+
+    expect(result.transactionCount).toBe(1);
+    expect(result.confidenceLabel).toBe("Low");
   });
 
   test("prorates a monthly budget over a partial selected period", () => {
