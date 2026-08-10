@@ -18,6 +18,7 @@ export function FormModal({
   children,
   footer,
   size = "compact",
+  bodyScrollable = true,
 }: PropsWithChildren<{
   visible: boolean;
   title: string;
@@ -25,6 +26,7 @@ export function FormModal({
   onClose: () => void;
   footer?: ReactNode;
   size?: "compact" | "wide";
+  bodyScrollable?: boolean;
 }>) {
   const { width } = useWindowDimensions();
   const compact = width < 640;
@@ -32,23 +34,36 @@ export function FormModal({
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       <View style={[styles.formModalScrim, compact && styles.formModalScrimCompact]}>
-        <View style={[styles.formModalCard, size === "wide" && styles.formModalCardWide]}>
-          <ScrollView
-            contentContainerStyle={[styles.formModalContent, compact && styles.formModalContentCompact]}
-            showsVerticalScrollIndicator
-          >
-            <View style={styles.formModalHeader}>
-              <View style={styles.formModalHeading}>
-                <View style={styles.headingRow}>
-                  <Text style={[styles.formModalTitle, compact && styles.formModalTitleCompact]}>{title}</Text>
-                  {subtitle ? <HelpTooltip text={subtitle} label={`About ${title}`} /> : null}
-                </View>
+        <View
+          style={[
+            styles.formModalCard,
+            size === "wide" && styles.formModalCardWide,
+            !bodyScrollable && styles.formModalCardFixedBody,
+          ]}
+        >
+          <View style={[styles.formModalHeader, compact && styles.formModalHeaderCompact]}>
+            <View style={styles.formModalHeading}>
+              <View style={styles.headingRow}>
+                <Text style={[styles.formModalTitle, compact && styles.formModalTitleCompact]}>{title}</Text>
+                {subtitle ? <HelpTooltip text={subtitle} label={`About ${title}`} /> : null}
               </View>
-              <PillButton label="Close" tone="ghost" onPress={onClose} />
             </View>
-            <View style={styles.formModalBody}>{children}</View>
-            {footer ? <View style={styles.formModalFooter}>{footer}</View> : null}
-          </ScrollView>
+            <PillButton label="Close" tone="ghost" onPress={onClose} />
+          </View>
+          {bodyScrollable ? (
+            <ScrollView
+              style={styles.formModalScroll}
+              contentContainerStyle={[styles.formModalBody, compact && styles.formModalBodyCompact]}
+              showsVerticalScrollIndicator
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={[styles.formModalBodyFixed, compact && styles.formModalBodyCompact]}>{children}</View>
+          )}
+          {footer ? (
+            <View style={[styles.formModalFooter, compact && styles.formModalFooterCompact]}>{footer}</View>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -227,11 +242,8 @@ const styles = StyleSheet.create({
   formModalCardWide: {
     maxWidth: 900,
   },
-  formModalContent: {
-    padding: 20,
-  },
-  formModalContentCompact: {
-    padding: 16,
+  formModalCardFixedBody: {
+    height: "92%",
   },
   formModalHeader: {
     flexDirection: "row",
@@ -239,7 +251,12 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: theme.spacing.md,
-    marginBottom: theme.spacing.lg,
+    padding: 20,
+    paddingBottom: theme.spacing.md,
+  },
+  formModalHeaderCompact: {
+    padding: 16,
+    paddingBottom: theme.spacing.md,
   },
   formModalHeading: {
     flex: 1,
@@ -326,6 +343,22 @@ const styles = StyleSheet.create({
   formModalBody: {
     flexShrink: 0,
     gap: theme.spacing.lg,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  formModalBodyCompact: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  formModalBodyFixed: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  formModalScroll: {
+    flexShrink: 1,
+    minHeight: 0,
   },
   formModalFooter: {
     flexDirection: "row",
@@ -334,8 +367,12 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
+    padding: 20,
     paddingTop: 16,
-    marginTop: 4,
+  },
+  formModalFooterCompact: {
+    padding: 16,
+    paddingTop: 14,
   },
   card: {
     backgroundColor: theme.colors.card,

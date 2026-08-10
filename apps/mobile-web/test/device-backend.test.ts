@@ -240,6 +240,37 @@ describe("device backend", () => {
     expect(offlineCacheStore.getState().getTransactions(userId)).toEqual([pendingTransaction]);
   });
 
+  it("does not restore a locally deleted transaction while its delete is waiting to sync", async () => {
+    const serverTransaction: Transaction = {
+      id: "pending-delete",
+      userId,
+      categoryId: "food",
+      amount: 18,
+      kind: "expense",
+      occurredAt: "2026-08-09T12:00:00.000Z",
+      note: null,
+      merchant: "Cafe",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    offlineQueueStore.getState().enqueue({
+      id: "queued-delete",
+      userId,
+      entity: "transaction",
+      action: "delete",
+      payload: { id: serverTransaction.id },
+      createdAt: now,
+    });
+    const backend = createDeviceBackend(
+      remoteStorage({ transactions: vi.fn(async () => [serverTransaction]) }),
+      () => userId,
+    );
+
+    await expect(backend.transactions()).resolves.toEqual([]);
+    expect(offlineCacheStore.getState().getTransactions(userId)).toEqual([]);
+  });
+
   it("stores an unavailable debt create locally and queues an idempotent remote mutation", async () => {
     const otherCategory: Category = {
       id: "other",

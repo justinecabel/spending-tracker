@@ -1,6 +1,6 @@
 # Code analysis handoff
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-10
 
 ## Architecture
 
@@ -9,6 +9,8 @@ Last reviewed: 2026-08-06
 - `packages/shared` owns Zod schemas and reporting/forecast/debt-health calculations. Update shared schemas before changing both client and server payloads.
 - Device profiles are authenticated by `Device-ID` plus a separate stored device secret. Linked Sync Code profiles use a durable pairing credential and rotating refresh sessions. Offline mutations are persisted in `offlineQueueStore` and replayed by `useSyncQueue`.
 - Transaction creation checks `navigator.onLine === false` before calling the remote adapter, then writes to the local cache and sync queue immediately so the Quick add modal can close without waiting on a failed fetch.
+- `offlineCacheStore.transactionsByUser` is the canonical transaction cache. Screens must read through `deviceBackend.transactions()` instead of using `transactionsByScope` snapshots; the latter remains only for persisted-state migration compatibility. `useOfflineCacheRefresh` pulls a full transaction snapshot on backend availability, browser reconnect, and foreground resume.
+- `FormModal` owns a fixed header and optional fixed footer. Submit/destructive actions belong in its `footer` prop. Use `bodyScrollable={false}` only when a child such as `TransactionForm` provides its own scrollable body and docked action row.
 
 ## QA protocol
 

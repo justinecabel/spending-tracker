@@ -13,7 +13,7 @@ import {
   toTimeInputValue,
 } from "../../src/lib/date";
 import { draftTransactionsStore } from "../../src/state/draft-transactions";
-import { offlineCacheStore, transactionScopeKey } from "../../src/state/offline-cache";
+import { offlineCacheStore } from "../../src/state/offline-cache";
 import { offlineQueueStore } from "../../src/state/offline-queue";
 import { sessionStore } from "../../src/state/session";
 import { summaryRangeStore } from "../../src/state/summary-range";
@@ -77,25 +77,12 @@ export default function TransactionsScreen() {
     },
   });
 
-  const transactionCacheId = transactionScopeKey(userId, `transactions:${range.key}`);
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "all", range.key],
-    queryFn: async () => {
-      const cached = offlineCacheStore.getState().transactionsByScope[transactionCacheId];
-      try {
-        const transactions = await api.transactions({
-          ...(range.from ? { from: range.from } : {}),
-          ...(range.to ? { to: range.to } : {}),
-        });
-        offlineCacheStore.getState().setTransactions(transactionCacheId, transactions);
-        return transactions;
-      } catch (error) {
-        if (cached) {
-          return cached;
-        }
-        throw error;
-      }
-    },
+    queryFn: () => api.transactions({
+      ...(range.from ? { from: range.from } : {}),
+      ...(range.to ? { to: range.to } : {}),
+    }),
   });
 
   const deleteMutation = useMutation({

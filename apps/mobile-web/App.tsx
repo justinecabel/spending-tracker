@@ -12,6 +12,7 @@ import { useLiveUpdates } from "./src/hooks/use-live-updates";
 import { useDebtReminders } from "./src/hooks/use-debt-reminders";
 import { useOfflineStatus } from "./src/hooks/use-offline-status";
 import { useBackendAvailability } from "./src/hooks/use-backend-availability";
+import { useOfflineCacheRefresh } from "./src/hooks/use-offline-cache-refresh";
 import { PwaInstallContext, usePwaInstall } from "./src/hooks/use-pwa-install";
 import { useSyncQueue } from "./src/hooks/use-sync";
 import { Providers } from "./src/providers";
@@ -127,40 +128,13 @@ function AppShell() {
   // update from surfacing as a "new version" banner after every login.
   const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus({ autoApplyWaitingUpdate: !accessToken });
   const { status: backendStatus, retry: retryBackend } = useBackendAvailability();
-  const previousBackendStatus = useRef(backendStatus);
   const showBackendStatus = isOnline && backendStatus !== "available";
 
   const { staleLinkedProfileUserId } = useBootstrapSession();
   useSyncQueue(accessToken ? userId : null);
   useLiveUpdates(Boolean(accessToken));
   useDebtReminders(Boolean(accessToken), userCurrency);
-
-  useEffect(() => {
-    const previousStatus = previousBackendStatus.current;
-    previousBackendStatus.current = backendStatus;
-
-    if (previousStatus !== "unavailable" || backendStatus !== "available") {
-      return;
-    }
-
-    // Browser connectivity can remain "online" while the Funnel is down, so
-    // React Query does not receive an online event when the backend recovers.
-    // Refresh active collections explicitly to persist the latest server data
-    // for the next offline session.
-    const recoveredQueryKeys = [
-      "categories",
-      "transactions",
-      "budgets",
-      "debts",
-      "countdown",
-      "report",
-      "reports",
-      "me",
-    ];
-    void Promise.all(
-      recoveredQueryKeys.map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
-    );
-  }, [backendStatus, queryClient]);
+  useOfflineCacheRefresh(Boolean(accessToken && userId && isOnline && backendStatus === "available"));
 
   useEffect(() => {
     applyThemeMode(appearanceMode, deviceScheme, customAccent, customSecondaryAccent);

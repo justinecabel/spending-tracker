@@ -70,7 +70,10 @@ export function useOfflineStatus({ autoApplyWaitingUpdate = false }: { autoApply
     if (IS_PRODUCTION_BUILD && "serviceWorker" in navigator && window.isSecureContext) {
       navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
       navigator.serviceWorker
-        .register(new URL("sw.js", document.baseURI).toString(), { scope: new URL("./", document.baseURI).pathname })
+        .register(new URL("sw.js", document.baseURI).toString(), {
+          scope: new URL("./", document.baseURI).pathname,
+          updateViaCache: "none",
+        })
         .then((registration) => {
           registrationRef.current = registration;
           setHasCachedShell(true);

@@ -35,9 +35,22 @@ function overlayPendingTransactions(
   remoteTransactions: Transaction[],
   query?: Record<string, string>,
 ) {
-  const pendingIds = new Set(
-    offlineQueueStore.getState().mutations.flatMap((mutation) => {
-      if (mutation.userId !== userId || mutation.entity !== "transaction" || mutation.action === "delete") {
+  const pendingMutations = offlineQueueStore.getState().mutations.filter(
+    (mutation) => mutation.userId === userId && mutation.entity === "transaction",
+  );
+  const pendingDeleteIds = new Set(
+    pendingMutations.flatMap((mutation) => {
+      if (mutation.action !== "delete") {
+        return [];
+      }
+
+      const payload = mutation.payload as { id?: string };
+      return payload.id ? [payload.id] : [];
+    }),
+  );
+  const pendingUpsertIds = new Set(
+    pendingMutations.flatMap((mutation) => {
+      if (mutation.action === "delete") {
         return [];
       }
 
@@ -46,16 +59,18 @@ function overlayPendingTransactions(
       return id ? [id] : [];
     }),
   );
-  if (pendingIds.size === 0) {
+  if (pendingUpsertIds.size === 0 && pendingDeleteIds.size === 0) {
     return remoteTransactions;
   }
 
   const pendingLocal = offlineCacheStore
     .getState()
     .getTransactions(userId, query)
-    .filter((transaction) => pendingIds.has(transaction.id));
+    .filter((transaction) => pendingUpsertIds.has(transaction.id));
   return sortTransactions([
-    ...remoteTransactions.filter((transaction) => !pendingIds.has(transaction.id)),
+    ...remoteTransactions.filter(
+      (transaction) => !pendingUpsertIds.has(transaction.id) && !pendingDeleteIds.has(transaction.id),
+    ),
     ...pendingLocal,
   ]);
 }

@@ -49,10 +49,6 @@ export default function DashboardScreen() {
   const enqueue = offlineQueueStore((state) => state.enqueue);
   const drafts = draftTransactionsStore((state) => state.drafts);
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
-  const transactionCacheId = transactionScopeKey(userId, `summary:${range.key}`);
-  const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]);
-  const historyCacheId = transactionScopeKey(userId, "forecast-history");
-  const cachedHistory = offlineCacheStore((state) => state.transactionsByScope[historyCacheId]);
   const budgetMonths = budgetMonthsForRange(range);
 
   const categoriesQuery = useQuery({
@@ -73,37 +69,15 @@ export default function DashboardScreen() {
 
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "summary", range.key],
-    queryFn: async () => {
-      try {
-        const transactions = await api.transactions({
-          ...(range.from ? { from: range.from } : {}),
-          ...(range.to ? { to: range.to } : {}),
-        });
-        offlineCacheStore.getState().setTransactions(transactionCacheId, transactions);
-        return transactions;
-      } catch (error) {
-        if (cachedTransactions) {
-          return cachedTransactions;
-        }
-        throw error;
-      }
-    },
+    queryFn: () => api.transactions({
+      ...(range.from ? { from: range.from } : {}),
+      ...(range.to ? { to: range.to } : {}),
+    }),
   });
 
   const historyQuery = useQuery({
     queryKey: ["transactions", userId, "forecast-history"],
-    queryFn: async () => {
-      try {
-        const transactions = await api.transactions();
-        offlineCacheStore.getState().setTransactions(historyCacheId, transactions);
-        return transactions;
-      } catch (error) {
-        if (cachedHistory) {
-          return cachedHistory;
-        }
-        throw error;
-      }
-    },
+    queryFn: () => api.transactions(),
   });
 
   const budgetsQuery = useQuery({
@@ -403,7 +377,7 @@ export default function DashboardScreen() {
   );
   const historyTransactions = [
     ...new Map(
-      [...drafts.filter((transaction) => transaction.userId === userId), ...(historyQuery.data ?? cachedHistory ?? [])]
+      [...drafts.filter((transaction) => transaction.userId === userId), ...(historyQuery.data ?? [])]
         .map((transaction) => [transaction.id, transaction]),
     ).values(),
   ];
@@ -711,7 +685,13 @@ export default function DashboardScreen() {
         <Text style={[styles.fabLabel, compact && styles.fabLabelCompact]}>Add transaction</Text>
       </Pressable>
 
-      <FormModal visible={isQuickAddOpen} title="Quick add" onClose={() => setIsQuickAddOpen(false)} size="wide">
+      <FormModal
+        visible={isQuickAddOpen}
+        title="Quick add"
+        onClose={() => setIsQuickAddOpen(false)}
+        size="wide"
+        bodyScrollable={false}
+      >
             {categoriesQuery.isPending ? (
               <Text style={styles.modalInfo}>Loading categories...</Text>
             ) : categoriesQuery.error ? (

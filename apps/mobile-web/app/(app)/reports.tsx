@@ -214,28 +214,13 @@ export default function ReportsScreen() {
   });
   const userId = user?.id ?? "anonymous";
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
-  const transactionCacheId = transactionScopeKey(userId, `reports:${range.key}`);
-  const cachedTransactions = offlineCacheStore((state) => state.transactionsByScope[transactionCacheId]);
-  const historyCacheId = transactionScopeKey(userId, "forecast-history");
-  const cachedHistory = offlineCacheStore((state) => state.transactionsByScope[historyCacheId]);
   const budgetMonths = budgetMonthsForRange(range);
   const transactionsQuery = useQuery({
     queryKey: ["transactions", userId, "reports", range.key],
-    queryFn: async () => {
-      try {
-        const transactions = await api.transactions({
-          ...(range.from ? { from: range.from } : {}),
-          ...(range.to ? { to: range.to } : {}),
-        });
-        offlineCacheStore.getState().setTransactions(transactionCacheId, transactions);
-        return transactions;
-      } catch (error) {
-        if (cachedTransactions) {
-          return cachedTransactions;
-        }
-        throw error;
-      }
-    },
+    queryFn: () => api.transactions({
+      ...(range.from ? { from: range.from } : {}),
+      ...(range.to ? { to: range.to } : {}),
+    }),
   });
   const categoriesQuery = useQuery({
     queryKey: ["categories", userId],
@@ -254,18 +239,7 @@ export default function ReportsScreen() {
   });
   const historyQuery = useQuery({
     queryKey: ["transactions", userId, "forecast-history"],
-    queryFn: async () => {
-      try {
-        const transactions = await api.transactions();
-        offlineCacheStore.getState().setTransactions(historyCacheId, transactions);
-        return transactions;
-      } catch (error) {
-        if (cachedHistory) {
-          return cachedHistory;
-        }
-        throw error;
-      }
-    },
+    queryFn: () => api.transactions(),
   });
   const budgetsQuery = useQuery({
     queryKey: ["budgets", userId, "forecast", budgetMonths.join(",")],
@@ -333,7 +307,7 @@ export default function ReportsScreen() {
   );
   const historyTransactions = [
     ...new Map(
-      [...drafts.filter((transaction) => transaction.userId === userId), ...(historyQuery.data ?? cachedHistory ?? [])]
+      [...drafts.filter((transaction) => transaction.userId === userId), ...(historyQuery.data ?? [])]
         .map((transaction) => [transaction.id, transaction]),
     ).values(),
   ];

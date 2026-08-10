@@ -127,6 +127,81 @@ export function TransactionForm({
     setTimeValue(toTimeInputValue(now));
   }
 
+  async function createCategory() {
+    const trimmedName = newCategoryName.trim();
+    if (!trimmedName) {
+      setCategoryError("Category name is required.");
+      return;
+    }
+    if (!isHexColor(newCategoryColor)) {
+      setCategoryError("Use a six-digit color such as #0F766E.");
+      return;
+    }
+
+    try {
+      setCategoryError(null);
+      setIsCreatingCategory(true);
+      const category = await onCreateCategory({ name: trimmedName, color: newCategoryColor });
+      upsertLocalCategory(category);
+      setCategoryId(category.id);
+      setNewCategoryName("");
+      setNewCategoryColor("#0F766E");
+      setIsCategoryModalOpen(false);
+    } catch (error) {
+      setCategoryError(error instanceof Error ? error.message : "Could not create category.");
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  }
+
+  async function deleteCategory() {
+    if (!editingCategoryId) {
+      return;
+    }
+
+    try {
+      setCategoryError(null);
+      setIsDeletingCategory(true);
+      const deleted = await onDeleteCategory(editingCategoryId);
+      upsertLocalCategory(deleted);
+      const nextCategory = allExpenseCategories.find((category) => category.id !== editingCategoryId);
+      setCategoryId(nextCategory?.id ?? "");
+      setIsManageModalOpen(false);
+    } catch (error) {
+      setCategoryError(error instanceof Error ? error.message : "Could not delete category.");
+    } finally {
+      setIsDeletingCategory(false);
+    }
+  }
+
+  async function updateCategory() {
+    const trimmedName = editingCategoryName.trim();
+    if (!editingCategoryId || !trimmedName) {
+      setCategoryError("Category name is required.");
+      return;
+    }
+    if (!isHexColor(editingCategoryColor)) {
+      setCategoryError("Use a six-digit color such as #0F766E.");
+      return;
+    }
+
+    try {
+      setCategoryError(null);
+      setIsUpdatingCategory(true);
+      const updated = await onUpdateCategory(editingCategoryId, {
+        name: trimmedName,
+        color: editingCategoryColor,
+      });
+      upsertLocalCategory(updated);
+      setCategoryId(updated.id);
+      setIsManageModalOpen(false);
+    } catch (error) {
+      setCategoryError(error instanceof Error ? error.message : "Could not update category.");
+    } finally {
+      setIsUpdatingCategory(false);
+    }
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} showsVerticalScrollIndicator>
@@ -253,7 +328,19 @@ export function TransactionForm({
         </Pressable>
       </View>
 
-      <FormModal visible={isCategoryModalOpen} title="New category" onClose={() => setIsCategoryModalOpen(false)}>
+      <FormModal
+        visible={isCategoryModalOpen}
+        title="New category"
+        onClose={() => setIsCategoryModalOpen(false)}
+        footer={
+          <Pressable
+            style={[styles.submit, styles.modalSubmit, isCreatingCategory && styles.buttonDisabled]}
+            onPress={() => void createCategory()}
+          >
+            <Text style={styles.submitText}>{isCreatingCategory ? "Saving..." : "Save category"}</Text>
+          </Pressable>
+        }
+      >
             <TextInput
               value={newCategoryName}
               onChangeText={setNewCategoryName}
@@ -293,42 +380,30 @@ export function TransactionForm({
               </View>
             </View>
             {categoryError ? <Text style={styles.errorText}>{categoryError}</Text> : null}
-            <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.submit, styles.modalSubmit, isCreatingCategory && styles.buttonDisabled]}
-                onPress={async () => {
-                  const trimmedName = newCategoryName.trim();
-                  if (!trimmedName) {
-                    setCategoryError("Category name is required.");
-                    return;
-                  }
-                  if (!isHexColor(newCategoryColor)) {
-                    setCategoryError("Use a six-digit color such as #0F766E.");
-                    return;
-                  }
-
-                  try {
-                    setCategoryError(null);
-                    setIsCreatingCategory(true);
-                    const category = await onCreateCategory({ name: trimmedName, color: newCategoryColor });
-                    upsertLocalCategory(category);
-                    setCategoryId(category.id);
-                    setNewCategoryName("");
-                    setNewCategoryColor("#0F766E");
-                    setIsCategoryModalOpen(false);
-                  } catch (error) {
-                    setCategoryError(error instanceof Error ? error.message : "Could not create category.");
-                  } finally {
-                    setIsCreatingCategory(false);
-                  }
-                }}
-              >
-                <Text style={styles.submitText}>{isCreatingCategory ? "Saving..." : "Save category"}</Text>
-              </Pressable>
-            </View>
       </FormModal>
 
-      <FormModal visible={isManageModalOpen} title="Edit category" onClose={() => setIsManageModalOpen(false)} size="wide">
+      <FormModal
+        visible={isManageModalOpen}
+        title="Edit category"
+        onClose={() => setIsManageModalOpen(false)}
+        size="wide"
+        footer={
+          <>
+            <Pressable
+              style={[styles.deleteButton, isDeletingCategory && styles.buttonDisabled]}
+              onPress={() => void deleteCategory()}
+            >
+              <Text style={styles.deleteButtonText}>{isDeletingCategory ? "Deleting..." : "Delete"}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.submit, styles.modalSubmit, (isUpdatingCategory || isDeletingCategory) && styles.buttonDisabled]}
+              onPress={() => void updateCategory()}
+            >
+              <Text style={styles.submitText}>{isUpdatingCategory ? "Saving..." : "Save changes"}</Text>
+            </Pressable>
+          </>
+        }
+      >
             <View style={styles.categoryRow}>
               {allExpenseCategories.map((category) => (
                 <Pressable
@@ -397,64 +472,6 @@ export function TransactionForm({
               </View>
             </View>
             {categoryError ? <Text style={styles.errorText}>{categoryError}</Text> : null}
-            <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.deleteButton, isDeletingCategory && styles.buttonDisabled]}
-                onPress={async () => {
-                  if (!editingCategoryId) {
-                    return;
-                  }
-
-                  try {
-                    setCategoryError(null);
-                    setIsDeletingCategory(true);
-                    const deleted = await onDeleteCategory(editingCategoryId);
-                    upsertLocalCategory(deleted);
-                    const nextCategory = allExpenseCategories.find((category) => category.id !== editingCategoryId);
-                    setCategoryId(nextCategory?.id ?? "");
-                    setIsManageModalOpen(false);
-                  } catch (error) {
-                    setCategoryError(error instanceof Error ? error.message : "Could not delete category.");
-                  } finally {
-                    setIsDeletingCategory(false);
-                  }
-                }}
-              >
-                <Text style={styles.deleteButtonText}>{isDeletingCategory ? "Deleting..." : "Delete"}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.submit, styles.modalSubmit, (isUpdatingCategory || isDeletingCategory) && styles.buttonDisabled]}
-                onPress={async () => {
-                  const trimmedName = editingCategoryName.trim();
-                  if (!editingCategoryId || !trimmedName) {
-                    setCategoryError("Category name is required.");
-                    return;
-                  }
-                  if (!isHexColor(editingCategoryColor)) {
-                    setCategoryError("Use a six-digit color such as #0F766E.");
-                    return;
-                  }
-
-                  try {
-                    setCategoryError(null);
-                    setIsUpdatingCategory(true);
-                    const updated = await onUpdateCategory(editingCategoryId, {
-                      name: trimmedName,
-                      color: editingCategoryColor,
-                    });
-                    upsertLocalCategory(updated);
-                    setCategoryId(updated.id);
-                    setIsManageModalOpen(false);
-                  } catch (error) {
-                    setCategoryError(error instanceof Error ? error.message : "Could not update category.");
-                  } finally {
-                    setIsUpdatingCategory(false);
-                  }
-                }}
-              >
-                <Text style={styles.submitText}>{isUpdatingCategory ? "Saving..." : "Save changes"}</Text>
-              </Pressable>
-            </View>
       </FormModal>
     </View>
   );
@@ -621,16 +638,6 @@ const styles = StyleSheet.create({
   },
   colorSwatchActive: {
     borderColor: theme.colors.ink,
-  },
-  modalActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    paddingTop: 16,
-    marginTop: 4,
   },
   modalSubmit: {
     paddingHorizontal: 16,
