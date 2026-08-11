@@ -128,7 +128,6 @@ function AppShell() {
   // update from surfacing as a "new version" banner after every login.
   const { isOnline, updateAvailable, applyUpdate } = useOfflineStatus({ autoApplyWaitingUpdate: !accessToken });
   const { status: backendStatus, retry: retryBackend } = useBackendAvailability();
-  const showBackendStatus = isOnline && backendStatus !== "available";
 
   const { staleLinkedProfileUserId } = useBootstrapSession();
   useSyncQueue(accessToken ? userId : null);
@@ -294,25 +293,14 @@ function AppShell() {
             </Pressable>
           ))}
         </View>
-        {updateAvailable || showBackendStatus ? (
+        {updateAvailable ? (
           <View style={[styles.syncBanner, { backgroundColor: palette.accentSoft, borderTopColor: palette.border }]}>
-            {showBackendStatus ? <View style={[styles.syncStatusDot, { backgroundColor: backendStatus === "unavailable" ? palette.warning : palette.accent }]} /> : null}
             <Text style={[styles.syncBannerText, styles.syncBannerMessage, { color: palette.accent }]}>
-              {showBackendStatus && backendStatus === "unavailable"
-                ? "Remote storage unavailable — using data saved on this device."
-                : showBackendStatus && backendStatus === "checking"
-                ? "Checking remote storage..."
-                : "A new version is ready. Reload to update the app."}
+              A new version is ready. Reload to update the app.
             </Text>
-            {showBackendStatus && backendStatus === "unavailable" ? (
-              <Pressable style={styles.updateButton} onPress={retryBackend}>
-                <Text style={styles.updateButtonText}>Retry</Text>
-              </Pressable>
-            ) : updateAvailable ? (
-              <Pressable style={styles.updateButton} onPress={applyUpdate}>
-                <Text style={styles.updateButtonText}>Reload</Text>
-              </Pressable>
-            ) : null}
+            <Pressable style={styles.updateButton} onPress={applyUpdate}>
+              <Text style={styles.updateButtonText}>Reload</Text>
+            </Pressable>
           </View>
         ) : null}
       </View>
@@ -391,11 +379,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
-  },
-  syncStatusDot: {
-    borderRadius: 5,
-    height: 10,
-    width: 10,
   },
   syncBannerText: {
     ...theme.typography.label,
