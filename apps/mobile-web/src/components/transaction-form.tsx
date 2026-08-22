@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Category, CreateTransactionInput } from "@spending-tracker/shared";
 import { combineDateAndTime, toDateInputValue, toTimeInputValue } from "../lib/date";
 import { theme } from "../theme";
 import { WebPressable as Pressable } from "./web-pressable";
-import { FormModal } from "./ui";
+import { WebDateTimeInput } from "./web-date-time-input";
+import { FormModal, PillButton, useFormModalFooter } from "./ui";
 
 function normalizeAmountInput(value: string) {
   const cleaned = value.replace(/[^\d.]/g, "");
@@ -41,8 +42,7 @@ export function TransactionForm({
   onUpdateCategory: (id: string, value: { name: string; color: string }) => Promise<Category>;
   onDeleteCategory: (id: string) => Promise<Category>;
 }) {
-  const { width } = useWindowDimensions();
-  const compactDateTime = width < 420;
+  const setModalFooter = useFormModalFooter();
   const expenseCategories = useMemo(
     () => categories.filter(isSelectableCategory),
     [categories],
@@ -97,15 +97,13 @@ export function TransactionForm({
       .slice(0, 5);
   }, [merchant, merchantSuggestions]);
   const webAmountInputProps = Platform.OS === "web" ? ({ inputMode: "decimal" } as const) : {};
-  const webDateInputProps = Platform.OS === "web" ? ({ type: "date" } as const) : {};
-  const webTimeInputProps = Platform.OS === "web" ? ({ type: "time" } as const) : {};
   useEffect(() => {
     if (!allExpenseCategories.some((category) => category.id === categoryId)) {
       setCategoryId(allExpenseCategories[0]?.id ?? "");
     }
   }, [allExpenseCategories, categoryId]);
 
-  function submitTransaction() {
+  const submitTransaction = useCallback(() => {
     const numericAmount = Number(amount);
     if (!numericAmount || !categoryId) {
       return;
@@ -125,7 +123,16 @@ export function TransactionForm({
     const now = new Date();
     setDateValue(toDateInputValue(now));
     setTimeValue(toTimeInputValue(now));
-  }
+  }, [amount, categoryId, dateValue, merchant, note, onSubmit, timeValue]);
+
+  useEffect(() => {
+    if (!setModalFooter) {
+      return;
+    }
+
+    setModalFooter(<PillButton label="Save transaction" icon="save" onPress={submitTransaction} />);
+    return () => setModalFooter(null);
+  }, [setModalFooter, submitTransaction]);
 
   async function createCategory() {
     const trimmedName = newCategoryName.trim();
@@ -257,28 +264,26 @@ export function TransactionForm({
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>When</Text>
-          <View style={[styles.dateTimeRow, compactDateTime && styles.dateTimeRowCompact]}>
-            <TextInput
+          <View style={styles.dateTimeRow}>
+            <WebDateTimeInput
+              type="date"
               placeholder="YYYY-MM-DD"
               value={dateValue}
               onChangeText={setDateValue}
               style={[styles.input, styles.dateInput]}
-              placeholderTextColor={theme.colors.muted}
-              {...webDateInputProps}
             />
-            <TextInput
+            <WebDateTimeInput
+              type="time"
               placeholder="HH:MM"
               value={timeValue}
               onChangeText={setTimeValue}
-              style={[styles.input, styles.timeInput, compactDateTime && styles.timeInputCompact]}
-              placeholderTextColor={theme.colors.muted}
-              {...webTimeInputProps}
+              style={[styles.input, styles.timeInput]}
             />
           </View>
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Category</Text>
-          <View style={styles.categoryRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
             {allExpenseCategories.map((category) => (
               <Pressable
                 key={category.id}
@@ -315,18 +320,17 @@ export function TransactionForm({
             >
               <Text style={styles.addCategoryText}>Edit category</Text>
             </Pressable>
-          </View>
+          </ScrollView>
         </View>
       </ScrollView>
 
-      <View style={styles.submitWrap}>
-        <Pressable
-          style={styles.submit}
-          onPress={submitTransaction}
-        >
-          <Text style={styles.submitText}>Save transaction</Text>
-        </Pressable>
-      </View>
+      {!setModalFooter ? (
+        <View style={styles.submitWrap}>
+          <Pressable style={styles.submit} onPress={submitTransaction}>
+            <Text style={styles.submitText}>Save transaction</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <FormModal
         visible={isCategoryModalOpen}
@@ -404,7 +408,7 @@ export function TransactionForm({
           </>
         }
       >
-            <View style={styles.categoryRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
               {allExpenseCategories.map((category) => (
                 <Pressable
                   key={category.id}
@@ -432,7 +436,7 @@ export function TransactionForm({
                   </Text>
                 </Pressable>
               ))}
-            </View>
+            </ScrollView>
             <TextInput
               value={editingCategoryName}
               onChangeText={setEditingCategoryName}
@@ -521,24 +525,26 @@ const styles = StyleSheet.create({
   },
   categoryRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    alignItems: "center",
     gap: 8,
+    paddingRight: 4,
   },
   dateTimeRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
-  },
-  dateTimeRowCompact: {
-    flexDirection: "column",
+    alignSelf: "stretch",
+    width: "100%",
+    minWidth: 0,
   },
   dateInput: {
     flex: 1,
+    minWidth: 180,
   },
   timeInput: {
-    width: 118,
-  },
-  timeInputCompact: {
-    width: "100%",
+    flex: 1,
+    minWidth: 180,
   },
   categoryChip: {
     borderRadius: 999,

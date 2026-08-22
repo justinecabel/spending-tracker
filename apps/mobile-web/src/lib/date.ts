@@ -55,9 +55,26 @@ export function toTimeInputValue(value: string | Date) {
   return `${hours}:${minutes}`;
 }
 
+function parseTimeInputValue(value: string) {
+  const match = value.trim().toUpperCase().match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/);
+  if (!match) return [0, 0];
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const period = match[3];
+
+  // Keep accepting legacy 24-hour values while displaying new values as AM/PM.
+  if (period) {
+    if (hours === 12) hours = 0;
+    if (period === "PM") hours += 12;
+  }
+
+  return [hours, minutes];
+}
+
 export function combineDateAndTime(dateValue: string, timeValue: string) {
   const [year, month, day] = dateValue.split("-").map(Number);
-  const [hours, minutes] = timeValue.split(":").map(Number);
+  const [hours, minutes] = parseTimeInputValue(timeValue);
   const composed = new Date(year, (month ?? 1) - 1, day ?? 1, hours ?? 0, minutes ?? 0, 0, 0);
   return composed.toISOString();
 }

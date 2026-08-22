@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { buildDebtPaymentHealth, type Debt } from "@spending-tracker/shared";
-import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Card, FormModal, Metric, PageHeader, PillButton, SectionTitle } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
+import { WebDateTimeInput } from "../../src/components/web-date-time-input";
 import { deviceBackend as api } from "../../src/backend/device-backend";
 import { combineDateAndTime, formatDateTimeLabel, formatMoney, rollMonthlyDateForward, toDateInputValue, toTimeInputValue } from "../../src/lib/date";
 import { checkDebtReminders } from "../../src/hooks/use-debt-reminders";
@@ -54,8 +55,6 @@ export default function DebtsScreen() {
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
   );
   const webAmountProps = Platform.OS === "web" ? ({ inputMode: "decimal" } as const) : {};
-  const webDateProps = Platform.OS === "web" ? ({ type: "date" } as const) : {};
-  const webTimeProps = Platform.OS === "web" ? ({ type: "time" } as const) : {};
 
   const debtsQuery = useQuery({ queryKey: ["debts", userId], queryFn: api.debts });
   const debts = debtsQuery.data ?? [];
@@ -169,7 +168,7 @@ export default function DebtsScreen() {
       screenKey="debts"
       onRefresh={async () => debtsQuery.refetch().then(() => undefined)}
     >
-      <PageHeader title="Debt watcher" subtitle="Keep upcoming bills in one place and get a reminder before they are due." />
+      <PageHeader title="Debt watcher" />
 
       <View style={[styles.metrics, compact && styles.metricsCompact]}>
         <Card style={[styles.metricCard, compact && styles.metricCardCompact]}><Metric label="Open items" value={String(openDebts.length)} /></Card>
@@ -180,10 +179,7 @@ export default function DebtsScreen() {
 
       <Card>
         <View style={[styles.scoreHeader, compact && styles.scoreHeaderCompact]}>
-          <SectionTitle
-            title="Debt payment health"
-            subtitle="A 0–100 behavior indicator based only on bills recorded here. It is not a credit score and does not use credit-bureau data."
-          />
+          <SectionTitle title="Debt payment health" />
           <View style={[styles.scoreValueBlock, compact && styles.scoreValueBlockCompact]}>
             <Text style={[styles.scoreValue, paymentHealth.score !== null && paymentHealth.score < 60 && styles.scoreValueWarning]}>
               {paymentHealth.score ?? "—"}
@@ -199,7 +195,6 @@ export default function DebtsScreen() {
                 factor.tone === "positive" && styles.scoreFactorPositive,
                 factor.tone === "negative" && styles.scoreFactorNegative,
               ]}>{factor.label}</Text>
-              <Text style={styles.hint}>{factor.detail}</Text>
             </View>
           ))}
         </View>
@@ -208,12 +203,12 @@ export default function DebtsScreen() {
       <FormModal
         visible={isFormOpen}
         title={editingDebt ? "Edit debt" : "Add a debt"}
-        subtitle="Choose when the alarm should appear."
         onClose={resetForm}
         size="wide"
         footer={
           <PillButton
             label={saveMutation.isPending ? "Saving..." : editingDebt ? "Save changes" : "Add debt"}
+            icon={editingDebt ? "save" : "add"}
             onPress={() => saveMutation.mutate()}
           />
         }
@@ -260,18 +255,20 @@ export default function DebtsScreen() {
             ) : null}
           </View>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Due date</Text>
-            <TextInput {...webDateProps} value={dueDate} onChangeText={setDueDate} style={styles.input} />
-          </View>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Due time</Text>
-            <TextInput {...webTimeProps} value={dueTime} onChangeText={setDueTime} style={styles.input} />
+          <View style={styles.dateTimeRow}>
+            <View style={styles.dateTimeField}>
+              <Text style={styles.label}>Due date</Text>
+              <WebDateTimeInput type="date" value={dueDate} onChangeText={setDueDate} style={[styles.input, styles.dateTimeInput]} />
+            </View>
+            <View style={styles.dateTimeField}>
+              <Text style={styles.label}>Due time</Text>
+              <WebDateTimeInput type="time" value={dueTime} onChangeText={setDueTime} style={[styles.input, styles.dateTimeInput]} />
+            </View>
           </View>
 
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Alarm</Text>
-            <View style={styles.choiceRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
               {reminderOptions.map((option) => (
                 <Pressable
                   key={String(option.value)}
@@ -281,7 +278,7 @@ export default function DebtsScreen() {
                   <Text style={[styles.choiceText, reminderDays === option.value && styles.choiceTextActive]}>{option.label}</Text>
                 </Pressable>
               ))}
-            </View>
+            </ScrollView>
             {reminderDays !== null && notificationPermission !== "granted" ? (
               <View style={styles.permissionRow}>
                 <Text style={styles.hint}>
@@ -291,7 +288,7 @@ export default function DebtsScreen() {
                     ? "This browser does not support notifications."
                     : "Allow notifications so alarms can appear."}
                 </Text>
-                {notificationPermission === "default" ? <PillButton label="Allow notifications" tone="ghost" onPress={() => void enableNotifications()} /> : null}
+                {notificationPermission === "default" ? <PillButton label="Allow notifications" icon="notifications" tone="ghost" onPress={() => void enableNotifications()} /> : null}
               </View>
             ) : null}
           </View>
@@ -302,8 +299,8 @@ export default function DebtsScreen() {
 
       <Card>
         <View style={styles.sectionHeader}>
-          <SectionTitle title="Your debts" subtitle="Open items appear first, ordered by due date." />
-          <PillButton label="Add debt" onPress={openCreateForm} />
+          <SectionTitle title="Your debts" />
+          <PillButton label="Add debt" icon="add" onPress={openCreateForm} />
         </View>
         <View style={styles.list}>
           {!debts.length ? <Text style={styles.empty}>No debts added yet.</Text> : debts.map((debt, index) => {
@@ -330,9 +327,9 @@ export default function DebtsScreen() {
                   </Text>
                 </View>
                 <View style={styles.rowActions}>
-                  <PillButton label={debt.paidAt ? "Reopen" : "Mark paid"} tone="ghost" onPress={() => updateMutation.mutate({ id: debt.id, paidAt: debt.paidAt ? null : new Date().toISOString() })} />
-                  <PillButton label="Edit" tone="ghost" onPress={() => editDebt(debt)} />
-                  <PillButton label="Delete" tone="ghost" onPress={() => setPendingDelete(debt)} />
+                  <PillButton label={debt.paidAt ? "Reopen" : "Mark paid"} icon={debt.paidAt ? "reopen" : "paid"} tone="ghost" onPress={() => updateMutation.mutate({ id: debt.id, paidAt: debt.paidAt ? null : new Date().toISOString() })} />
+                  <PillButton label="Edit" icon="edit" tone="ghost" onPress={() => editDebt(debt)} />
+                  <PillButton label="Delete" icon="delete" tone="ghost" onPress={() => setPendingDelete(debt)} />
                 </View>
               </View>
             );
@@ -346,8 +343,8 @@ export default function DebtsScreen() {
             <Text style={styles.modalTitle}>Delete this debt?</Text>
             <Text style={styles.hint}>{pendingDelete?.merchant} will be permanently removed.</Text>
             <View style={styles.modalActions}>
-              <PillButton label="Cancel" tone="ghost" onPress={() => setPendingDelete(null)} />
-              <PillButton label={deleteMutation.isPending ? "Deleting..." : "Delete"} onPress={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)} />
+              <PillButton label="Cancel" icon="close" tone="ghost" onPress={() => setPendingDelete(null)} />
+              <PillButton label={deleteMutation.isPending ? "Deleting..." : "Delete"} icon="delete" onPress={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)} />
             </View>
           </View>
         </View>
@@ -386,8 +383,11 @@ const styles = StyleSheet.create({
   suggestionList: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   suggestionChip: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.accentSoft },
   suggestionText: { color: theme.colors.accentSoftText, ...theme.typography.label, fontWeight: "700" },
-  choiceRow: { flexDirection: "row", flexWrap: "wrap", flexShrink: 0, gap: 8 },
-  choice: { flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: theme.colors.accentSoft },
+  dateTimeRow: { alignSelf: "stretch", width: "100%", minWidth: 0, flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  dateTimeField: { flex: 1, minWidth: 180, gap: 8 },
+  dateTimeInput: { width: "100%" },
+  choiceRow: { flexDirection: "row", flexWrap: "nowrap", alignItems: "center", gap: 8, paddingRight: 4 },
+  choice: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: theme.colors.accentSoft },
   choiceActive: { backgroundColor: theme.colors.accent },
   choiceText: { color: theme.colors.accentSoftText, fontSize: 14, lineHeight: 20, fontWeight: "700" },
   choiceTextActive: { color: theme.colors.accentText },

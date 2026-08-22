@@ -44,6 +44,8 @@ export default function SettingsScreen({
   const appearanceProfileKey = getAppearanceProfileKey(activeProfile, user?.id);
   const appearanceMode = appearanceStore((state) => state.getMode(appearanceProfileKey));
   const setAppearanceMode = appearanceStore((state) => state.setMode);
+  const showIcons = appearanceStore((state) => state.getShowIcons(appearanceProfileKey));
+  const setShowIcons = appearanceStore((state) => state.setShowIcons);
   const customAccent = appearanceStore((state) => state.getAccent(appearanceProfileKey));
   const setAppearanceAccent = appearanceStore((state) => state.setAccent);
   const customSecondaryAccent = appearanceStore((state) => state.getSecondaryAccent(appearanceProfileKey));
@@ -390,6 +392,23 @@ export default function SettingsScreen({
               label="Dark"
               tone={appearanceMode === "dark" ? "primary" : "ghost"}
               onPress={() => setAppearanceMode(appearanceProfileKey, "dark")}
+            />
+          </View>
+        </View>
+        <View style={styles.appearanceSection}>
+          <Text style={styles.label}>Interface icons</Text>
+          <View style={styles.rangeModeRow}>
+            <PillButton
+              label="On"
+              icon="showIcons"
+              tone={showIcons ? "primary" : "ghost"}
+              onPress={() => setShowIcons(appearanceProfileKey, true)}
+            />
+            <PillButton
+              label="Off"
+              icon="hideIcons"
+              tone={showIcons ? "ghost" : "primary"}
+              onPress={() => setShowIcons(appearanceProfileKey, false)}
             />
           </View>
         </View>

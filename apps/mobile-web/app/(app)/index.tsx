@@ -20,6 +20,7 @@ import { Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from
 import Svg, { Path } from "react-native-svg";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
+import { AppIcon } from "../../src/components/app-icon";
 
 export default function DashboardScreen() {
   const user = sessionStore((state) => state.user);
@@ -436,7 +437,7 @@ export default function DashboardScreen() {
       </View>
       <View style={styles.predictionRow}>
         <Text style={styles.predictionValue}>{formatMoney(projectedPeriodEnd, user?.currency ?? "USD")}</Text>
-        <PillButton label="View report" tone="ghost" onPress={() => appShellStore.getState().setTab("reports")} />
+        <PillButton label="View report" icon="viewReport" tone="ghost" onPress={() => appShellStore.getState().setTab("reports")} />
       </View>
     </Card>
   );
@@ -503,7 +504,7 @@ export default function DashboardScreen() {
     <Card>
       <View style={styles.sectionHeader}>
         <SectionTitle title="Debt watcher" subtitle="Upcoming bills and unpaid balances." />
-        <PillButton label="View debts" tone="ghost" onPress={() => appShellStore.getState().setTab("debts")} />
+        <PillButton label="View debts" icon="viewDebts" tone="ghost" onPress={() => appShellStore.getState().setTab("debts")} />
       </View>
       <View style={styles.metrics}>
         <Metric label="Open items" value={String(openDebts.length)} />
@@ -590,7 +591,7 @@ export default function DashboardScreen() {
               onPress={() => setIsCountdownMenuOpen((open) => !open)}
               style={[styles.countdownMenuButton, isCountdownMenuOpen && styles.countdownMenuButtonOpen]}
             >
-              <Text style={[styles.countdownMenuDots, isCountdownMenuOpen && styles.countdownMenuDotsOpen]}>•••</Text>
+              <AppIcon name="more" color={isCountdownMenuOpen ? theme.colors.accentText : theme.colors.accentSoftText} size={24} />
             </Pressable>
             {isCountdownMenuOpen ? (
               <View style={styles.countdownMenuPopover}>
@@ -599,7 +600,10 @@ export default function DashboardScreen() {
                   onPress={openCountdownForm}
                   style={styles.countdownMenuItem}
                 >
-                  <Text style={styles.countdownMenuItemText}>Edit</Text>
+                  <View style={styles.countdownMenuItemContent}>
+                    <AppIcon name="edit" color={theme.colors.accentSoftText} size={16} />
+                    <Text style={styles.countdownMenuItemText}>Edit</Text>
+                  </View>
                 </Pressable>
                 <View style={styles.countdownMenuDivider} />
                 <Pressable
@@ -610,7 +614,10 @@ export default function DashboardScreen() {
                   }}
                   style={styles.countdownMenuItem}
                 >
-                  <Text style={[styles.countdownMenuItemText, styles.countdownMenuRemoveText]}>Remove</Text>
+                  <View style={styles.countdownMenuItemContent}>
+                    <AppIcon name="delete" color={theme.colors.warning} size={16} />
+                    <Text style={[styles.countdownMenuItemText, styles.countdownMenuRemoveText]}>Remove</Text>
+                  </View>
                 </Pressable>
               </View>
             ) : null}
@@ -622,7 +629,7 @@ export default function DashboardScreen() {
             <Text style={styles.countdownEyebrow}>COUNTDOWN</Text>
             <Text style={styles.emptyText}>Add a title and date to start.</Text>
           </View>
-          <PillButton label="Add countdown" tone="ghost" onPress={openCountdownForm} />
+          <PillButton label="Add countdown" icon="add" tone="ghost" onPress={openCountdownForm} />
         </View>
       )}
       {countdownSyncError ? <Text style={styles.errorText}>{countdownSyncError}</Text> : null}
@@ -681,7 +688,7 @@ export default function DashboardScreen() {
       </ScreenContainer>
 
       <Pressable style={[styles.fab, compact && styles.fabCompact]} onPress={() => setIsQuickAddOpen(true)}>
-        <Text style={styles.fabPlus}>+</Text>
+        <AppIcon name="add" color={theme.colors.accentText} size={compact ? 22 : 24} />
         <Text style={[styles.fabLabel, compact && styles.fabLabelCompact]}>Add transaction</Text>
       </Pressable>
 
@@ -690,7 +697,6 @@ export default function DashboardScreen() {
         title="Quick add"
         onClose={() => setIsQuickAddOpen(false)}
         size="wide"
-        bodyScrollable={false}
       >
             {categoriesQuery.isPending ? (
               <Text style={styles.modalInfo}>Loading categories...</Text>
@@ -699,6 +705,7 @@ export default function DashboardScreen() {
                 <Text style={styles.errorText}>{categoriesQuery.error.message}</Text>
                 <PillButton
                   label="Retry"
+                  icon="retry"
                   tone="ghost"
                   onPress={() => {
                     void categoriesQuery.refetch();
@@ -734,7 +741,7 @@ export default function DashboardScreen() {
         title={savedCountdown ? "Edit countdown" : "Add countdown"}
         subtitle="Choose an event and its date."
         onClose={closeCountdownForm}
-        footer={<PillButton label="Save countdown" onPress={handleSaveCountdown} />}
+        footer={<PillButton label="Save countdown" icon="save" onPress={handleSaveCountdown} />}
       >
         <View style={styles.countdownForm}>
           <View style={styles.countdownField}>
@@ -978,6 +985,11 @@ const styles = StyleSheet.create({
   countdownMenuItem: {
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  countdownMenuItemContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
   },
   countdownMenuItemText: {
     color: theme.colors.ink,

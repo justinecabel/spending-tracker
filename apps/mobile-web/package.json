@@ -13,6 +13,7 @@
   "dependencies": {
     "@babel/runtime": "^8.0.0",
     "@expo/metro-runtime": "~3.2.3",
+    "@expo/vector-icons": "14.1.0",
     "@react-native/assets-registry": "0.86.0",
     "@spending-tracker/shared": "workspace:*",
     "@tanstack/react-query": "^5.59.16",

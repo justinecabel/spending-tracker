@@ -30,6 +30,20 @@
         flex: 1;
       }
 
+      /* Buttons should not retain a visible browser focus ring after interaction. */
+      button:focus,
+      button:focus-visible {
+        outline: none !important;
+        box-shadow: none !important;
+      }
+      input:focus,
+      textarea:focus,
+      select:focus {
+        outline: 3px solid #1d4ed8 !important;
+        outline-offset: 2px !important;
+        box-shadow: 0 0 0 2px #fffdf8, 0 0 0 5px #1d4ed8 !important;
+      }
+
       @keyframes spending-countdown-wave-forward {
         from { transform: translate3d(-66px, 0, 0); }
         to { transform: translate3d(0, 0, 0); }

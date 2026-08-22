@@ -16,12 +16,15 @@ type AppearanceState = {
   profileModes: Record<string, AppearanceMode>;
   profileAccents: Record<string, string | null>;
   profileSecondaryAccents: Record<string, string | null>;
+  profileShowIcons: Record<string, boolean>;
   setMode: (profileKey: string, mode: AppearanceMode) => void;
   getMode: (profileKey: string) => AppearanceMode;
   setAccent: (profileKey: string, accent: string | null) => void;
   getAccent: (profileKey: string) => string | null;
   setSecondaryAccent: (profileKey: string, accent: string | null) => void;
   getSecondaryAccent: (profileKey: string) => string | null;
+  setShowIcons: (profileKey: string, showIcons: boolean) => void;
+  getShowIcons: (profileKey: string) => boolean;
 };
 
 export const appearanceStore = create<AppearanceState>()(
@@ -31,6 +34,7 @@ export const appearanceStore = create<AppearanceState>()(
       profileModes: {},
       profileAccents: {},
       profileSecondaryAccents: {},
+      profileShowIcons: {},
       setMode: (profileKey, mode) =>
         set((state) => ({
           mode,
@@ -56,6 +60,16 @@ export const appearanceStore = create<AppearanceState>()(
           },
         })),
       getSecondaryAccent: (profileKey) => (get().profileSecondaryAccents ?? {})[profileKey] ?? null,
+      setShowIcons: (profileKey, showIcons) =>
+        set((state) => ({
+          profileShowIcons: {
+            ...(state.profileShowIcons ?? {}),
+            [profileKey]: showIcons,
+          },
+        })),
+      // Older persisted appearance data has no icon preference. Keep icons
+      // enabled for those profiles instead of changing their existing UI.
+      getShowIcons: (profileKey) => (get().profileShowIcons ?? {})[profileKey] ?? true,
     }),
     {
       name: "spending-tracker-appearance",

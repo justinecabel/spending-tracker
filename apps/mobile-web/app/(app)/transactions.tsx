@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Modal, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Transaction } from "@spending-tracker/shared";
 import { Card, FormModal, PageHeader, PillButton } from "../../src/components/ui";
 import { ScreenContainer } from "../../src/components/layout";
@@ -21,6 +21,7 @@ import { appShellStore } from "../../src/state/app-shell";
 import { resolveSummaryRange } from "../../src/lib/summary-range";
 import { theme } from "../../src/theme";
 import { WebPressable as Pressable } from "../../src/components/web-pressable";
+import { WebDateTimeInput } from "../../src/components/web-date-time-input";
 
 function normalizeAmountInput(value: string) {
   const cleaned = value.replace(/[^\d.]/g, "");
@@ -32,8 +33,6 @@ function normalizeAmountInput(value: string) {
 }
 
 export default function TransactionsScreen() {
-  const { width } = useWindowDimensions();
-  const compactDateTime = width < 420;
   const user = sessionStore((state) => state.user);
   const drafts = draftTransactionsStore((state) => state.drafts);
   const queuedMutations = offlineQueueStore((state) => state.mutations);
@@ -57,8 +56,6 @@ export default function TransactionsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pendingDeleteTransaction, setPendingDeleteTransaction] = useState<Transaction | null>(null);
   const webAmountInputProps = Platform.OS === "web" ? ({ inputMode: "decimal" } as const) : {};
-  const webDateInputProps = Platform.OS === "web" ? ({ type: "date" } as const) : {};
-  const webTimeInputProps = Platform.OS === "web" ? ({ type: "time" } as const) : {};
 
   const categoriesQuery = useQuery({
     queryKey: ["categories", userId],
@@ -219,8 +216,8 @@ export default function TransactionsScreen() {
                 <View style={styles.rowActions}>
                   <Text style={styles.amount}>{formatMoney(transaction.amount, user?.currency ?? "USD")}</Text>
                   <View style={styles.actionRow}>
-                    <PillButton label="Edit" tone="ghost" onPress={() => openEditor(transaction)} />
-                    <PillButton label="Delete" tone="ghost" onPress={() => setPendingDeleteTransaction(transaction)} />
+                    <PillButton label="Edit" icon="edit" tone="ghost" onPress={() => openEditor(transaction)} />
+                    <PillButton label="Delete" icon="delete" tone="ghost" onPress={() => setPendingDeleteTransaction(transaction)} />
                   </View>
                 </View>
               </View>
@@ -243,10 +240,11 @@ export default function TransactionsScreen() {
               {viewingTransaction?.id.startsWith("client-") ? <Text style={styles.detailText}>Status: Pending sync</Text> : null}
             </View>
             <View style={styles.modalActions}>
-              <PillButton label="Close" tone="ghost" onPress={() => setViewingTransaction(null)} />
+              <PillButton label="Close" icon="close" tone="ghost" onPress={() => setViewingTransaction(null)} />
               {viewingTransaction ? (
                 <PillButton
                   label="Edit"
+                  icon="edit"
                   onPress={() => {
                     openEditor(viewingTransaction);
                     setViewingTransaction(null);
@@ -265,6 +263,7 @@ export default function TransactionsScreen() {
         footer={
           <PillButton
             label={updateMutation.isPending ? "Saving..." : "Save changes"}
+            icon="save"
             onPress={() => {
               if (!selectedTransaction || !Number(amount) || !categoryId) return;
               void handleUpdate(selectedTransaction.id, {
@@ -312,28 +311,26 @@ export default function TransactionsScreen() {
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>When</Text>
-              <View style={[styles.dateTimeRow, compactDateTime && styles.dateTimeRowCompact]}>
-                <TextInput
+              <View style={styles.dateTimeRow}>
+                <WebDateTimeInput
+                  type="date"
                   placeholder="YYYY-MM-DD"
                   value={dateValue}
                   onChangeText={setDateValue}
                   style={[styles.input, styles.dateInput]}
-                  placeholderTextColor={theme.colors.muted}
-                  {...webDateInputProps}
                 />
-                <TextInput
+                <WebDateTimeInput
+                  type="time"
                   placeholder="HH:MM"
                   value={timeValue}
                   onChangeText={setTimeValue}
-                  style={[styles.input, styles.timeInput, compactDateTime && styles.timeInputCompact]}
-                  placeholderTextColor={theme.colors.muted}
-                  {...webTimeInputProps}
+                  style={[styles.input, styles.timeInput]}
                 />
               </View>
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Category</Text>
-              <View style={styles.categoryRow}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
                 {categories.map((category) => (
                   <Pressable
                     key={category.id}
@@ -351,7 +348,7 @@ export default function TransactionsScreen() {
                     </Text>
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             </View>
             {updateMutation.error ? <Text style={styles.errorText}>{updateMutation.error.message}</Text> : null}
       </FormModal>
@@ -369,9 +366,10 @@ export default function TransactionsScreen() {
               Delete {pendingDeleteTransaction?.merchant ?? pendingDeleteTransaction?.note ?? "this transaction"}?
             </Text>
             <View style={styles.modalActions}>
-              <PillButton label="Cancel" tone="ghost" onPress={() => setPendingDeleteTransaction(null)} />
+              <PillButton label="Cancel" icon="close" tone="ghost" onPress={() => setPendingDeleteTransaction(null)} />
               <PillButton
                 label={deleteMutation.isPending ? "Deleting..." : "Delete"}
+                icon="delete"
                 tone="ghost"
                 onPress={() => {
                   if (!pendingDeleteTransaction) {
@@ -498,24 +496,26 @@ const styles = StyleSheet.create({
   },
   dateTimeRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
-  },
-  dateTimeRowCompact: {
-    flexDirection: "column",
+    alignSelf: "stretch",
+    width: "100%",
+    minWidth: 0,
   },
   dateInput: {
     flex: 1,
+    minWidth: 180,
   },
   timeInput: {
-    width: 118,
-  },
-  timeInputCompact: {
-    width: "100%",
+    flex: 1,
+    minWidth: 180,
   },
   categoryRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    alignItems: "center",
     gap: 8,
+    paddingRight: 4,
   },
   categoryChip: {
     borderRadius: 999,

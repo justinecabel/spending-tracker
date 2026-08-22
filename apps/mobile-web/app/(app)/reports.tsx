@@ -37,8 +37,33 @@ function findScrollContainer(node: HTMLElement) {
   return document.scrollingElement as HTMLElement | null;
 }
 
+function scopedTransactions(
+  drafts: Transaction[],
+  fetched: Transaction[],
+  userId: string,
+  range: ResolvedSummaryRange,
+) {
+  const matchingDrafts = drafts.filter((transaction) => {
+    if (transaction.userId !== userId) {
+      return false;
+    }
+    if (range.from && transaction.occurredAt < range.from) {
+      return false;
+    }
+    if (range.to && transaction.occurredAt > range.to) {
+      return false;
+    }
+    return true;
+  });
+
+  return [...new Map([...matchingDrafts, ...fetched].map((transaction) => [transaction.id, transaction])).values()].sort(
+    (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
+  );
+}
+
 export default function ReportsScreen() {
   const user = sessionStore((state) => state.user);
+  const userId = user?.id ?? "anonymous";
   const { width } = useWindowDimensions();
   const [selectedStat, setSelectedStat] = useState<SelectedStat | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -73,25 +98,6 @@ export default function ReportsScreen() {
     graphViewportTopRef.current = node.getBoundingClientRect().top;
     graphScrollContainerRef.current = findScrollContainer(node);
   }, []);
-  const animateCycleChange = useCallback((enterFrom: "left" | "right") => {
-    if (cycleAnimationInFlightRef.current) {
-      return;
-    }
-
-    cycleAnimationInFlightRef.current = true;
-    cycleTransition.stopAnimation();
-    cycleTransition.setValue(enterFrom === "left" ? -cycleTransitionDistance : cycleTransitionDistance);
-    requestAnimationFrame(() => {
-      Animated.timing(cycleTransition, {
-        toValue: 0,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: cycleAnimationDriver,
-      }).start(() => {
-        cycleAnimationInFlightRef.current = false;
-      });
-    });
-  }, [cycleAnimationDriver, cycleTransition, cycleTransitionDistance]);
   const resetCycleTransition = useCallback(() => {
     if (cycleAnimationInFlightRef.current) {
       return;
@@ -112,14 +118,15 @@ export default function ReportsScreen() {
 
     cycleAnimationInFlightRef.current = true;
     captureGraphPosition();
-    cycleTransition.stopAnimation();
+    const nextOffset = direction === "previous" ? cycleOffset - 1 : Math.min(0, cycleOffset + 1);
+    const destinationX = direction === "previous" ? cycleTransitionDistance : -cycleTransitionDistance;
 
-    const outgoingX = direction === "previous" ? cycleTransitionDistance : -cycleTransitionDistance;
-    const incomingX = -outgoingX;
+    // The previous/current/next panels are mounted side-by-side. Moving this
+    // track exposes the adjacent panel rather than an empty viewport.
     Animated.timing(cycleTransition, {
-      toValue: outgoingX,
+      toValue: destinationX,
       duration: 220,
-      easing: Easing.in(Easing.cubic),
+      easing: Easing.inOut(Easing.cubic),
       useNativeDriver: cycleAnimationDriver,
     }).start(({ finished }) => {
       if (!finished) {
@@ -127,36 +134,21 @@ export default function ReportsScreen() {
         return;
       }
 
-      setCycleOffset((value) => direction === "previous" ? value - 1 : Math.min(0, value + 1));
-      cycleTransition.setValue(incomingX);
-      requestAnimationFrame(() => {
-        Animated.timing(cycleTransition, {
-          toValue: 0,
-          duration: 220,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: cycleAnimationDriver,
-        }).start(() => {
-          cycleAnimationInFlightRef.current = false;
-        });
-      });
+      cycleTransition.setValue(0);
+      setCycleOffset(nextOffset);
+      cycleAnimationInFlightRef.current = false;
     });
-  }, [captureGraphPosition, cycleAnimationDriver, cycleTransition, cycleTransitionDistance]);
+  }, [captureGraphPosition, cycleAnimationDriver, cycleOffset, cycleTransition, cycleTransitionDistance]);
   const showPreviousCycle = useCallback(() => {
     if (canNavigateCycles && !cycleAnimationInFlightRef.current) {
-      captureGraphPosition();
-      // A rightward gesture reveals the previous period from the left, as in
-      // a native carousel.
-      animateCycleChange("left");
-      setCycleOffset((value) => value - 1);
+      commitCycleSwipe("previous");
     }
-  }, [animateCycleChange, canNavigateCycles, captureGraphPosition]);
+  }, [canNavigateCycles, commitCycleSwipe]);
   const showNextCycle = useCallback(() => {
     if (cycleOffset < 0 && !cycleAnimationInFlightRef.current) {
-      captureGraphPosition();
-      animateCycleChange("right");
-      setCycleOffset((value) => Math.min(0, value + 1));
+      commitCycleSwipe("next");
     }
-  }, [animateCycleChange, captureGraphPosition, cycleOffset]);
+  }, [commitCycleSwipe, cycleOffset]);
   const cyclePanResponder = useMemo(
     () => {
       const isHorizontalSwipe = (_: unknown, gesture: { dx: number; dy: number }) => (
@@ -212,7 +204,20 @@ export default function ReportsScreen() {
     smartPaydays,
     cycleOffset,
   });
-  const userId = user?.id ?? "anonymous";
+  const previousRange = resolveSummaryRange({
+    mode: summaryMode,
+    customFrom,
+    customTo,
+    smartPaydays,
+    cycleOffset: cycleOffset - 1,
+  });
+  const nextRange = resolveSummaryRange({
+    mode: summaryMode,
+    customFrom,
+    customTo,
+    smartPaydays,
+    cycleOffset: Math.min(0, cycleOffset + 1),
+  });
   const cachedCategories = offlineCacheStore((state) => state.categoriesByUser[userId]);
   const budgetMonths = budgetMonthsForRange(range);
   const transactionsQuery = useQuery({
@@ -221,6 +226,22 @@ export default function ReportsScreen() {
       ...(range.from ? { from: range.from } : {}),
       ...(range.to ? { to: range.to } : {}),
     }),
+  });
+  const previousTransactionsQuery = useQuery({
+    queryKey: ["transactions", userId, "reports", previousRange.key],
+    queryFn: () => api.transactions({
+      ...(previousRange.from ? { from: previousRange.from } : {}),
+      ...(previousRange.to ? { to: previousRange.to } : {}),
+    }),
+    enabled: canNavigateCycles,
+  });
+  const nextTransactionsQuery = useQuery({
+    queryKey: ["transactions", userId, "reports", nextRange.key],
+    queryFn: () => api.transactions({
+      ...(nextRange.from ? { from: nextRange.from } : {}),
+      ...(nextRange.to ? { to: nextRange.to } : {}),
+    }),
+    enabled: canNavigateCycles && cycleOffset < 0,
   });
   const categoriesQuery = useQuery({
     queryKey: ["categories", userId],
@@ -290,21 +311,9 @@ export default function ReportsScreen() {
       clearTimeout(timer);
     };
   }, [range.key, transactionsQuery.data, budgetsQuery.data]);
-  const offlineDrafts = drafts.filter((transaction) => {
-    if (transaction.userId !== userId) {
-      return false;
-    }
-    if (range.from && transaction.occurredAt < range.from) {
-      return false;
-    }
-    if (range.to && transaction.occurredAt > range.to) {
-      return false;
-    }
-    return true;
-  });
-  const transactions = [...new Map([...offlineDrafts, ...(transactionsQuery.data ?? [])].map((transaction) => [transaction.id, transaction])).values()].sort(
-    (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
-  );
+  const transactions = scopedTransactions(drafts, transactionsQuery.data ?? [], userId, range);
+  const previousTransactions = scopedTransactions(drafts, previousTransactionsQuery.data ?? [], userId, previousRange);
+  const nextTransactions = scopedTransactions(drafts, nextTransactionsQuery.data ?? [], userId, nextRange);
   const historyTransactions = [
     ...new Map(
       [...drafts.filter((transaction) => transaction.userId === userId), ...(historyQuery.data ?? [])]
@@ -319,6 +328,14 @@ export default function ReportsScreen() {
   const forecast = useMemo(
     () => buildForecastAnalysis({ transactions, historyTransactions, categories, budgets, range }),
     [budgets, categories, historyTransactions, range, transactions],
+  );
+  const previousForecast = useMemo(
+    () => buildForecastAnalysis({ transactions: previousTransactions, historyTransactions, categories, budgets, range: previousRange }),
+    [budgets, categories, historyTransactions, previousRange, previousTransactions],
+  );
+  const nextForecast = useMemo(
+    () => buildForecastAnalysis({ transactions: nextTransactions, historyTransactions, categories, budgets, range: nextRange }),
+    [budgets, categories, historyTransactions, nextRange, nextTransactions],
   );
   const analytics = useMemo(
     () => buildAdvancedAnalytics(report, transactions, historyTransactions, range, forecast.projectedTotal),
@@ -390,34 +407,21 @@ export default function ReportsScreen() {
         }
       }}
     >
-      <PageHeader
-        title="Reports"
-        subtitle={range.subtitle ? `${range.title} · ${range.subtitle}` : range.title}
-        subtitleMode="inline"
-      />
+      <PageHeader title="Reports" />
+      {hasTransactions ? (
+        <Card>
+          <SectionTitle title="Category breakdown" />
+          {queryErrorMessage ? <Text style={styles.errorText}>{queryErrorMessage}</Text> : null}
+          {report ? <ReportCharts report={report} currency={user?.currency ?? "USD"} /> : null}
+          <CategoryBudgetBars categories={forecast.categories} currency={user?.currency ?? "USD"} />
+        </Card>
+      ) : null}
       <Card>
-        <SectionTitle
-          title="Category breakdown"
-          subtitle={range.subtitle ? `${range.title} · ${range.subtitle}` : range.title}
-          subtitleMode="inline"
-        />
-        {queryErrorMessage && !hasTransactions ? <Text style={styles.errorText}>{queryErrorMessage}</Text> : null}
-        {report ? <ReportCharts report={report} currency={user?.currency ?? "USD"} /> : null}
-        <CategoryBudgetBars categories={forecast.categories} currency={user?.currency ?? "USD"} />
-      </Card>
-      <Card>
-        <SectionTitle
-          title="Forecast summary"
-          subtitle={`${forecast.confidenceLabel} confidence · ${forecast.futureDays} days remaining`}
-          subtitleMode="inline"
-        />
+        <SectionTitle title="Forecast summary" />
         <View style={styles.summaryGrid}>
           <ForecastMetric label="Actual" value={formatMoney(forecast.actualTotal, user?.currency ?? "USD")} />
           <ForecastMetric label="Projected" value={formatMoney(forecast.projectedTotal, user?.currency ?? "USD")} />
           <ForecastMetric label="Likely range" value={`${formatMoney(forecast.forecastLow, user?.currency ?? "USD")}–${formatMoney(forecast.forecastHigh, user?.currency ?? "USD")}`} />
-        </View>
-        <View style={styles.dataNotes}>
-          {forecast.dataQualityNotes.slice(0, 2).map((note) => <Text key={note} style={styles.dataNote}>{note}</Text>)}
         </View>
       </Card>
       <DebtInsights
@@ -427,10 +431,7 @@ export default function ReportsScreen() {
         error={debtsQuery.error?.message}
       />
       <Card>
-        <SectionTitle
-          title="Insights"
-          subtitle="Spending patterns, pace, and forecast drivers."
-        />
+        <SectionTitle title="Insights" />
         <View style={[styles.insightsLayout, useSideInsights && styles.insightsLayoutWide]}>
           <View style={[styles.forecastColumn, useSideInsights && styles.forecastColumnWide]}>
             <View
@@ -440,28 +441,58 @@ export default function ReportsScreen() {
               <Animated.View
                 ref={graphAnchorRef}
                 style={[
-                  styles.forecastCarouselSlide,
-                  { transform: [{ translateX: cycleTransition }] },
+                  styles.forecastCarouselTrack,
+                  { transform: [{ translateX: Animated.add(cycleTransition, -cycleTransitionDistance) }] },
                   Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : undefined,
                 ]}
                 {...cyclePanResponder.panHandlers}
               >
-                <ForecastChart
-                  transactions={transactions}
-                  forecast={forecast}
-                  currency={user?.currency ?? "USD"}
-                  range={range}
-                  cycleOffset={cycleOffset}
-                  showCycleButtons={showCycleButtons}
-                  showPreviousCycle={showPreviousCycle}
-                  showNextCycle={showNextCycle}
-                  showSwipeHint={supportsTouch && canNavigateCycles}
-                />
+                <View style={[styles.forecastCarouselSlide, { width: cycleTransitionDistance }]}>
+                  {previousTransactionsQuery.isPending ? (
+                    <ForecastChartLoading range={previousRange} />
+                  ) : (
+                    <ForecastChart
+                      transactions={previousTransactions}
+                      forecast={previousForecast}
+                      currency={user?.currency ?? "USD"}
+                      range={previousRange}
+                      cycleOffset={cycleOffset - 1}
+                      showCycleButtons={false}
+                      showPreviousCycle={showPreviousCycle}
+                      showNextCycle={showNextCycle}
+                    />
+                  )}
+                </View>
+                <View style={[styles.forecastCarouselSlide, { width: cycleTransitionDistance }]}>
+                  <ForecastChart
+                    transactions={transactions}
+                    forecast={forecast}
+                    currency={user?.currency ?? "USD"}
+                    range={range}
+                    cycleOffset={cycleOffset}
+                    showCycleButtons={showCycleButtons}
+                    showPreviousCycle={showPreviousCycle}
+                    showNextCycle={showNextCycle}
+                  />
+                </View>
+                <View style={[styles.forecastCarouselSlide, { width: cycleTransitionDistance }]}>
+                  {cycleOffset < 0 && !nextTransactionsQuery.isPending ? (
+                    <ForecastChart
+                      transactions={nextTransactions}
+                      forecast={nextForecast}
+                      currency={user?.currency ?? "USD"}
+                      range={nextRange}
+                      cycleOffset={Math.min(0, cycleOffset + 1)}
+                      showCycleButtons={false}
+                      showPreviousCycle={showPreviousCycle}
+                      showNextCycle={showNextCycle}
+                    />
+                  ) : (
+                    <ForecastChartLoading range={nextRange} disabled={cycleOffset === 0} />
+                  )}
+                </View>
               </Animated.View>
             </View>
-            {!hasTransactions ? (
-              <Text style={styles.emptyText}>No spending recorded in this period. Swipe left to return.</Text>
-            ) : null}
             {hasTransactions && useSideInsights && showDetails ? <View style={styles.nerdGrid}>{belowForecastTiles}</View> : null}
           </View>
           {hasTransactions ? (
@@ -472,12 +503,12 @@ export default function ReportsScreen() {
         </View>
         {hasTransactions ? (
           <View style={styles.detailToggle}>
-            <PillButton label={showDetails ? "Hide details" : "Show more insights"} tone="ghost" onPress={() => setShowDetails((value) => !value)} />
+            <PillButton label={showDetails ? "Hide details" : "Show more insights"} icon={showDetails ? "showLess" : "showMore"} tone="ghost" onPress={() => setShowDetails((value) => !value)} />
           </View>
         ) : null}
       </Card>
       <Card>
-        <SectionTitle title="Spending drivers" subtitle="Recurring items, concentration, and unusual activity." />
+        <SectionTitle title="Spending drivers" />
         <ForecastDrivers forecast={forecast} currency={user?.currency ?? "USD"} showDetails={showDetails} />
       </Card>
     </ScreenContainer>
@@ -493,7 +524,7 @@ export default function ReportsScreen() {
               {selectedStat.details.map((detail) => <Text key={detail} style={styles.statModalDetail}>• {detail}</Text>)}
             </View>
           ) : null}
-          <PillButton label="Close" tone="ghost" onPress={() => setSelectedStat(null)} />
+          <PillButton label="Close" icon="close" tone="ghost" onPress={() => setSelectedStat(null)} />
         </View>
       </View>
     </Modal>
@@ -513,7 +544,6 @@ function ForecastMetric({ label, value, tone = "neutral" }: { label: string; val
 function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; currency: string; loading: boolean; error?: string }) {
   const now = Date.now();
   const inSevenDays = now + 7 * 24 * 60 * 60 * 1000;
-  const inThirtyDays = now + 30 * 24 * 60 * 60 * 1000;
   const open = debts.filter((debt) => !debt.paidAt);
   const paid = debts.filter((debt) => Boolean(debt.paidAt));
   const overdue = open.filter((debt) => new Date(debt.dueAt).getTime() < now);
@@ -528,11 +558,6 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
   const dueInSevenDays = future
     .filter((debt) => new Date(debt.dueAt).getTime() <= inSevenDays)
     .reduce((sum, debt) => sum + debt.amount, 0);
-  const dueInThirtyDays = future
-    .filter((debt) => new Date(debt.dueAt).getTime() <= inThirtyDays)
-    .reduce((sum, debt) => sum + debt.amount, 0);
-  const paidTotal = paid.reduce((sum, debt) => sum + debt.amount, 0);
-  const largestOpen = [...open].sort((left, right) => right.amount - left.amount)[0];
   const paymentHealth = buildDebtPaymentHealth(debts);
   const monthlyObligations = future.reduce<Array<{ key: string; label: string; total: number; count: number }>>((months, debt) => {
     const due = new Date(debt.dueAt);
@@ -552,34 +577,32 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
     return months;
   }, []).slice(0, 4);
 
+  if (!loading && !error && debts.length === 0) {
+    return null;
+  }
+
   return (
     <Card>
-      <SectionTitle
-        title="Debt insights"
-        subtitle="Outstanding obligations, payment progress, and debt-payment behavior recorded in this app."
-      />
+      <SectionTitle title="Debt insights" />
       {loading ? <Text style={styles.emptyText}>Loading debt insights...</Text> : null}
       {error && !debts.length ? <Text style={styles.errorText}>{error}</Text> : null}
       {!loading ? (
         <>
           <View style={styles.nerdGrid}>
             <StatTile
-              label="Debt payment health"
+              label="Payment health"
               value={paymentHealth.score === null ? "—" : `${paymentHealth.score}/100`}
-              subvalue={`${paymentHealth.band}, ${paymentHealth.confidence.toLowerCase()} confidence`}
               tone={paymentHealth.score === null ? "neutral" : paymentHealth.score < 60 ? "negative" : paymentHealth.score >= 90 ? "positive" : "neutral"}
             />
             <StatTile label="Open debt items" value={String(open.length)} subvalue={`${formatMoney(outstanding, currency)} outstanding`} />
-            <StatTile label="Overdue debt" value={formatMoney(overdueTotal, currency)} subvalue={`${overdue.length} overdue item${overdue.length === 1 ? "" : "s"}`} tone={overdue.length ? "negative" : "positive"} />
-            <StatTile label="Debt due in 7 days" value={formatMoney(dueInSevenDays, currency)} subvalue="Excludes overdue items" />
-            <StatTile label="Debt due in 30 days" value={formatMoney(dueInThirtyDays, currency)} subvalue="Excludes overdue items" />
-            <StatTile label="Paid debt history" value={formatMoney(paidTotal, currency)} subvalue={`${paid.length} paid item${paid.length === 1 ? "" : "s"}`} tone={paid.length ? "positive" : "neutral"} />
-            <StatTile label="Largest open debt" value={largestOpen?.merchant ?? "None"} subvalue={largestOpen ? formatMoney(largestOpen.amount, currency) : "No unpaid debts"} />
+            <StatTile label="Overdue" value={formatMoney(overdueTotal, currency)} tone={overdue.length ? "negative" : "positive"} />
+            <StatTile label="Due soon" value={formatMoney(dueInSevenDays, currency)} subvalue="Next 7 days" />
           </View>
           <View style={styles.debtDetailsGrid}>
-            <View style={styles.driverColumn}>
-              <Text style={styles.driverTitle}>Payment-health factors</Text>
-              {paymentHealth.factors.map((factor) => (
+            {paymentHealth.factors.length ? (
+              <View style={styles.driverColumn}>
+                <Text style={styles.driverTitle}>Payment factors</Text>
+                {paymentHealth.factors.map((factor) => (
                 <View key={factor.label} style={styles.driverRow}>
                   <View style={styles.driverText}>
                     <Text style={[
@@ -590,11 +613,13 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
                     <Text style={styles.statSubvalue}>{factor.detail}</Text>
                   </View>
                 </View>
-              ))}
-            </View>
-            <View style={styles.driverColumn}>
-              <Text style={styles.driverTitle}>Upcoming bills</Text>
-              {future.length ? future.slice(0, 5).map((debt) => (
+                ))}
+              </View>
+            ) : null}
+            {future.length ? (
+              <View style={styles.driverColumn}>
+                <Text style={styles.driverTitle}>Upcoming</Text>
+                {future.slice(0, 5).map((debt) => (
                 <View key={debt.id} style={styles.driverRow}>
                   <View style={styles.driverText}>
                     <Text style={styles.driverLabel}>{debt.merchant}</Text>
@@ -602,11 +627,13 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
                   </View>
                   <Text style={styles.driverValue}>{formatMoney(debt.amount, currency)}</Text>
                 </View>
-              )) : <Text style={styles.statSubvalue}>No upcoming unpaid bills.</Text>}
-            </View>
-            <View style={styles.driverColumn}>
-              <Text style={styles.driverTitle}>Monthly obligations</Text>
-              {monthlyObligations.length ? monthlyObligations.map((month) => (
+                ))}
+              </View>
+            ) : null}
+            {monthlyObligations.length ? (
+              <View style={styles.driverColumn}>
+                <Text style={styles.driverTitle}>Monthly</Text>
+                {monthlyObligations.map((month) => (
                 <View key={month.key} style={styles.driverRow}>
                   <View style={styles.driverText}>
                     <Text style={styles.driverLabel}>{month.label}</Text>
@@ -614,11 +641,13 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
                   </View>
                   <Text style={styles.driverValue}>{formatMoney(month.total, currency)}</Text>
                 </View>
-              )) : <Text style={styles.statSubvalue}>No future obligations scheduled.</Text>}
-            </View>
-            <View style={styles.driverColumn}>
-              <Text style={styles.driverTitle}>Recent debt payments</Text>
-              {recentPayments.length ? recentPayments.map((debt) => (
+                ))}
+              </View>
+            ) : null}
+            {recentPayments.length ? (
+              <View style={styles.driverColumn}>
+                <Text style={styles.driverTitle}>Recent payments</Text>
+                {recentPayments.map((debt) => (
                 <View key={debt.id} style={styles.driverRow}>
                   <View style={styles.driverText}>
                     <Text style={styles.driverLabel}>{debt.merchant}</Text>
@@ -626,8 +655,9 @@ function DebtInsights({ debts, currency, loading, error }: { debts: Debt[]; curr
                   </View>
                   <Text style={styles.driverValue}>{formatMoney(debt.amount, currency)}</Text>
                 </View>
-              )) : <Text style={styles.statSubvalue}>No debt payments recorded yet.</Text>}
-            </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         </>
       ) : null}
@@ -656,7 +686,7 @@ function CategoryBudgetBars({ categories, currency }: { categories: ForecastAnal
   const max = Math.max(...visible.flatMap((category) => [category.actual, category.projected, category.budget ?? 0]), 1);
   return (
     <View style={styles.categoryForecastSection}>
-      <SectionTitle title="Projected by category" subtitle="Actual, projected, and prorated budget" />
+      <SectionTitle title="Projected by category" />
       {visible.map((category) => (
         <View key={category.categoryId ?? category.categoryName} style={styles.categoryForecastRow}>
           <View style={styles.categoryForecastMain}>
@@ -690,7 +720,7 @@ function ForecastDrivers({ forecast, currency, showDetails }: { forecast: Foreca
       <View style={styles.driverGrid}>
       <View style={styles.driverColumn}>
         <Text style={styles.driverTitle}>Recurring</Text>
-        {forecast.recurring.length === 0 ? <Text style={styles.statSubvalue}>No consistent recurring pattern yet.</Text> : forecast.recurring.slice(0, 3).map((pattern) => (
+        {forecast.recurring.length === 0 ? <Text style={styles.driverValue}>—</Text> : forecast.recurring.slice(0, 3).map((pattern) => (
           <View key={`${pattern.label}-${pattern.nextDate}`} style={styles.driverRow}>
             <View style={styles.driverText}><Text style={styles.driverLabel}>{pattern.label}</Text><Text style={styles.statSubvalue}>{pattern.cadence} · next {pattern.nextDate ?? "later"}</Text></View>
             <Text style={styles.driverValue}>{formatMoney(pattern.projectedTotal, currency)}</Text>
@@ -699,7 +729,7 @@ function ForecastDrivers({ forecast, currency, showDetails }: { forecast: Foreca
       </View>
       <View style={styles.driverColumn}>
         <Text style={styles.driverTitle}>Top merchants</Text>
-        {forecast.topMerchants.length === 0 ? <Text style={styles.statSubvalue}>Add merchant names for concentration insights.</Text> : forecast.topMerchants.slice(0, 3).map((merchant) => (
+        {forecast.topMerchants.length === 0 ? <Text style={styles.driverValue}>—</Text> : forecast.topMerchants.slice(0, 3).map((merchant) => (
           <View key={merchant.merchant} style={styles.driverRow}>
             <Text style={styles.driverLabel}>{merchant.merchant}</Text>
             <Text style={styles.driverValue}>{formatMoney(merchant.total, currency)}</Text>
@@ -708,22 +738,21 @@ function ForecastDrivers({ forecast, currency, showDetails }: { forecast: Foreca
       </View>
       <View style={styles.driverColumn}>
         <Text style={styles.driverTitle}>Recent movement</Text>
-        <Text style={styles.driverLabel}>{forecast.recentSevenDayTotal === 0 ? "No recent spend" : `${Math.round(Math.abs(forecast.recentSevenDayDelta) * 100)}% ${forecast.recentSevenDayDelta <= 0 ? "lower" : "higher"}`}</Text>
-        <Text style={styles.statSubvalue}>Latest 7 days vs previous 7 days</Text>
+        <Text style={styles.driverLabel}>{forecast.recentSevenDayTotal === 0 ? "—" : `${Math.round(Math.abs(forecast.recentSevenDayDelta) * 100)}% ${forecast.recentSevenDayDelta <= 0 ? "lower" : "higher"}`}</Text>
         {forecast.unusualTransactions.slice(0, 2).map((transaction) => <Text key={transaction.id} style={styles.dataNote}>{transaction.label}: {formatMoney(transaction.amount, currency)}</Text>)}
       </View>
       </View>
       {showDetails ? (
         <View style={styles.patternDetails}>
-          <SectionTitle title="Pattern details" subtitle="Expand the report for weekday, time, and outlier context." />
+          <SectionTitle title="Pattern details" />
           <View style={styles.patternGrid}>
             <View style={styles.patternColumn}>
               <Text style={styles.driverTitle}>Weekday pattern</Text>
-              {weekdayRows.length ? weekdayRows.map((item) => <ForecastBar key={item.weekday} label={item.label.slice(0, 3)} amount={item.total} max={patternMax} color={theme.colors.accent} currency={currency} />) : <Text style={styles.statSubvalue}>No weekday pattern yet.</Text>}
+              {weekdayRows.length ? weekdayRows.map((item) => <ForecastBar key={item.weekday} label={item.label.slice(0, 3)} amount={item.total} max={patternMax} color={theme.colors.accent} currency={currency} />) : <Text style={styles.driverValue}>—</Text>}
             </View>
             <View style={styles.patternColumn}>
               <Text style={styles.driverTitle}>Time of day</Text>
-              {hourlyRows.length ? hourlyRows.map((item) => <ForecastBar key={item.hour} label={item.label} amount={item.total} max={patternMax} color={theme.colors.warning} currency={currency} />) : <Text style={styles.statSubvalue}>No time pattern yet.</Text>}
+              {hourlyRows.length ? hourlyRows.map((item) => <ForecastBar key={item.hour} label={item.label} amount={item.total} max={patternMax} color={theme.colors.warning} currency={currency} />) : <Text style={styles.driverValue}>—</Text>}
             </View>
             <View style={styles.patternColumn}>
               <Text style={styles.driverTitle}>Outliers</Text>
@@ -732,7 +761,7 @@ function ForecastDrivers({ forecast, currency, showDetails }: { forecast: Foreca
                   <View style={styles.driverText}><Text style={styles.driverLabel}>{transaction.label}</Text><Text style={styles.statSubvalue}>{transaction.reason}</Text></View>
                   <Text style={styles.driverValue}>{formatMoney(transaction.amount, currency)}</Text>
                 </View>
-              )) : <Text style={styles.statSubvalue}>No unusual transactions detected.</Text>}
+              )) : <Text style={styles.driverValue}>—</Text>}
             </View>
           </View>
         </View>
@@ -805,6 +834,23 @@ function describeStat(label: string) {
   return descriptions[label] ?? "Calculated from the transactions in your selected summary range.";
 }
 
+function ForecastChartLoading({ range, disabled = false }: { range: ResolvedSummaryRange; disabled?: boolean }) {
+  return (
+    <View style={[styles.forecastChart, styles.forecastChartLoading, disabled && styles.forecastChartDisabled]}>
+      <View style={styles.forecastHeading}>
+        <Text style={styles.forecastTitle}>{range.title}</Text>
+        <Text style={styles.statSubvalue}>{disabled ? "No newer period" : "Preparing period…"}</Text>
+        {range.subtitle ? <Text style={styles.forecastCycleLabel}>{range.subtitle}</Text> : null}
+      </View>
+      <View style={styles.forecastLoadingPlot}>
+        <View style={[styles.forecastLoadingLine, styles.forecastLoadingLineShort]} />
+        <View style={[styles.forecastLoadingLine, styles.forecastLoadingLineLong]} />
+        <View style={[styles.forecastLoadingLine, styles.forecastLoadingLineMedium]} />
+      </View>
+    </View>
+  );
+}
+
 function ForecastChart({
   transactions,
   forecast,
@@ -814,7 +860,6 @@ function ForecastChart({
   showCycleButtons,
   showPreviousCycle,
   showNextCycle,
-  showSwipeHint,
 }: {
   transactions: Transaction[];
   forecast: ForecastAnalysis;
@@ -824,7 +869,6 @@ function ForecastChart({
   showCycleButtons: boolean;
   showPreviousCycle: () => void;
   showNextCycle: () => void;
-  showSwipeHint: boolean;
 }) {
   const { width } = useWindowDimensions();
   const isPayCycle = range.key.startsWith("smart-pay-cycle:");
@@ -917,7 +961,6 @@ function ForecastChart({
           </Pressable>
         </>
       ) : null}
-      {showSwipeHint ? <Text style={styles.swipeHint}>Swipe right for the previous cycle · swipe left to return</Text> : null}
       <View
         style={styles.forecastPlot}
         onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}
@@ -1356,8 +1399,11 @@ function formatHourLabel(hour: number) {
 }
 
 const styles = StyleSheet.create({
+  forecastCarouselTrack: {
+    flexDirection: "row",
+  },
   forecastCarouselSlide: {
-    width: "100%",
+    flexShrink: 0,
   },
   forecastCarouselViewport: {
     overflow: "hidden",
@@ -1689,6 +1735,33 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.field,
+  },
+  forecastChartLoading: {
+    minHeight: 322,
+  },
+  forecastChartDisabled: {
+    opacity: 0.58,
+  },
+  forecastLoadingPlot: {
+    flex: 1,
+    justifyContent: "flex-end",
+    marginTop: 20,
+    paddingBottom: 34,
+  },
+  forecastLoadingLine: {
+    backgroundColor: theme.colors.accentSoft,
+    borderRadius: 999,
+    height: 8,
+    marginTop: 14,
+  },
+  forecastLoadingLineShort: {
+    width: "42%",
+  },
+  forecastLoadingLineMedium: {
+    width: "68%",
+  },
+  forecastLoadingLineLong: {
+    width: "92%",
   },
   forecastHeader: {
     flexDirection: "row",

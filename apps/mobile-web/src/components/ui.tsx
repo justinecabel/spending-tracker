@@ -1,7 +1,18 @@
-import { PropsWithChildren, useState, type ReactNode } from "react";
+import { createContext, PropsWithChildren, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { Modal, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { theme } from "../theme";
+import { AppIcon, type AppIconName } from "./app-icon";
 import { WebPressable as Pressable } from "./web-pressable";
+
+type FormModalFooterContextValue = {
+  setFooter: (footer: ReactNode | null) => void;
+};
+
+const FormModalFooterContext = createContext<FormModalFooterContextValue | null>(null);
+
+export function useFormModalFooter() {
+  return useContext(FormModalFooterContext)?.setFooter ?? null;
+}
 
 export function Card({ children, style }: PropsWithChildren<{ style?: object }>) {
   const { width } = useWindowDimensions();
@@ -30,43 +41,50 @@ export function FormModal({
 }>) {
   const { width } = useWindowDimensions();
   const compact = width < 640;
+  const [registeredFooter, setRegisteredFooter] = useState<ReactNode>(null);
+  const setFooter = useCallback((nextFooter: ReactNode | null) => {
+    setRegisteredFooter(nextFooter);
+  }, []);
+  const footerContextValue = useMemo(() => ({ setFooter }), [setFooter]);
+  const resolvedFooter = footer ?? registeredFooter;
 
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-      <View style={[styles.formModalScrim, compact && styles.formModalScrimCompact]}>
-        <View
-          style={[
-            styles.formModalCard,
-            size === "wide" && styles.formModalCardWide,
-            !bodyScrollable && styles.formModalCardFixedBody,
-          ]}
-        >
-          <View style={[styles.formModalHeader, compact && styles.formModalHeaderCompact]}>
-            <View style={styles.formModalHeading}>
-              <View style={styles.headingRow}>
-                <Text style={[styles.formModalTitle, compact && styles.formModalTitleCompact]}>{title}</Text>
-                {subtitle ? <HelpTooltip text={subtitle} label={`About ${title}`} /> : null}
+    <FormModalFooterContext.Provider value={footerContextValue}>
+      <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+        <View style={[styles.formModalScrim, compact && styles.formModalScrimCompact]}>
+          <View
+            style={[
+              styles.formModalCard,
+              size === "wide" && styles.formModalCardWide,
+            ]}
+          >
+            <View style={[styles.formModalHeader, compact && styles.formModalHeaderCompact]}>
+              <View style={styles.formModalHeading}>
+                <View style={styles.headingRow}>
+                  <Text style={[styles.formModalTitle, compact && styles.formModalTitleCompact]}>{title}</Text>
+                  {subtitle ? <HelpTooltip text={subtitle} label={`About ${title}`} /> : null}
+                </View>
               </View>
+              <PillButton label="Close" icon="close" tone="ghost" onPress={onClose} />
             </View>
-            <PillButton label="Close" tone="ghost" onPress={onClose} />
+            {bodyScrollable ? (
+              <ScrollView
+                style={styles.formModalScroll}
+                contentContainerStyle={[styles.formModalBody, compact && styles.formModalBodyCompact]}
+                showsVerticalScrollIndicator
+              >
+                {children}
+              </ScrollView>
+            ) : (
+              <View style={[styles.formModalBodyFixed, compact && styles.formModalBodyCompact]}>{children}</View>
+            )}
+            {resolvedFooter ? (
+              <View style={[styles.formModalFooter, compact && styles.formModalFooterCompact]}>{resolvedFooter}</View>
+            ) : null}
           </View>
-          {bodyScrollable ? (
-            <ScrollView
-              style={styles.formModalScroll}
-              contentContainerStyle={[styles.formModalBody, compact && styles.formModalBodyCompact]}
-              showsVerticalScrollIndicator
-            >
-              {children}
-            </ScrollView>
-          ) : (
-            <View style={[styles.formModalBodyFixed, compact && styles.formModalBodyCompact]}>{children}</View>
-          )}
-          {footer ? (
-            <View style={[styles.formModalFooter, compact && styles.formModalFooterCompact]}>{footer}</View>
-          ) : null}
         </View>
-      </View>
-    </Modal>
+      </Modal>
+    </FormModalFooterContext.Provider>
   );
 }
 
@@ -99,7 +117,7 @@ export function HelpTooltip({ text, label = "More information" }: { text: string
             <Text style={styles.helpModalTitle}>{label}</Text>
             <Text style={styles.helpModalText}>{text}</Text>
             <View style={styles.helpModalActions}>
-              <PillButton label="Close" tone="ghost" onPress={() => setOpen(false)} />
+              <PillButton label="Close" icon="close" tone="ghost" onPress={() => setOpen(false)} />
             </View>
           </View>
         </View>
@@ -160,10 +178,12 @@ export function PageHeader({
 
 export function PillButton({
   label,
+  icon,
   onPress,
   tone = "primary",
 }: {
   label: string;
+  icon?: AppIconName;
   onPress?: () => void;
   tone?: "primary" | "ghost";
 }) {
@@ -175,15 +195,18 @@ export function PillButton({
       onPress={onPress}
       style={[styles.button, compact && styles.buttonCompact, tone === "ghost" ? styles.buttonGhost : styles.buttonPrimary]}
     >
-      <Text
-        style={[
-          styles.buttonText,
-          compact && styles.buttonTextCompact,
-          tone === "ghost" ? styles.buttonTextGhost : styles.buttonTextPrimary,
-        ]}
-      >
-        {label}
-      </Text>
+      <View style={styles.buttonContent}>
+        {icon ? <AppIcon name={icon} color={tone === "ghost" ? theme.colors.accentSoftText : theme.colors.accentText} size={compact ? 16 : 18} /> : null}
+        <Text
+          style={[
+            styles.buttonText,
+            compact && styles.buttonTextCompact,
+            tone === "ghost" ? styles.buttonTextGhost : styles.buttonTextPrimary,
+          ]}
+        >
+          {label}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -241,9 +264,6 @@ const styles = StyleSheet.create({
   },
   formModalCardWide: {
     maxWidth: 900,
-  },
-  formModalCardFixedBody: {
-    height: "92%",
   },
   formModalHeader: {
     flexDirection: "row",
@@ -351,8 +371,6 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   formModalBodyFixed: {
-    flex: 1,
-    minHeight: 0,
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
@@ -453,6 +471,11 @@ const styles = StyleSheet.create({
   buttonText: {
     ...theme.typography.control,
     fontWeight: "700",
+  },
+  buttonContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
   },
   buttonTextCompact: {
     fontSize: 15,

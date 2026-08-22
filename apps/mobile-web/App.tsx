@@ -17,18 +17,19 @@ import { PwaInstallContext, usePwaInstall } from "./src/hooks/use-pwa-install";
 import { useSyncQueue } from "./src/hooks/use-sync";
 import { Providers } from "./src/providers";
 import { WebPressable as Pressable } from "./src/components/web-pressable";
+import { AppIcon, type AppIconName } from "./src/components/app-icon";
 import { appShellStore, normalizeTabKey, type TabKey } from "./src/state/app-shell";
 import { appearanceStore, getAppearanceProfileKey } from "./src/state/appearance";
 import { sessionStore } from "./src/state/session";
 import { offlineQueueStore } from "./src/state/offline-queue";
 import { applyThemeMode, getPalette, resolveAppearance, theme } from "./src/theme";
 
-const tabs: Array<[TabKey, string]> = [
-  ["home", "Home"],
-  ["transactions", "Transactions"],
-  ["debts", "Debts"],
-  ["reports", "Reports"],
-  ["settings", "Settings"],
+const tabs: Array<[TabKey, string, AppIconName]> = [
+  ["home", "Home", "home"],
+  ["transactions", "Transactions", "transactions"],
+  ["debts", "Debts", "debts"],
+  ["reports", "Reports", "reports"],
+  ["settings", "Settings", "settings"],
 ];
 
 function parseTabFromLocation(): TabKey {
@@ -269,7 +270,7 @@ function AppShell() {
       <View style={[styles.tabBarChrome, { borderBottomColor: palette.border, backgroundColor: palette.card }]}>
         {isWeb ? <View style={styles.safeAreaTopFill} /> : null}
         <View style={[styles.tabBar, { backgroundColor: palette.card }]}>
-          {tabs.map(([key, label]) => (
+          {tabs.map(([key, label, icon]) => (
             <Pressable
               key={key}
               onPress={() => setTab(key)}
@@ -280,16 +281,19 @@ function AppShell() {
                 activeTab === key && [styles.tabActive, { backgroundColor: palette.accent }],
               ]}
             >
-              <Text
-                style={[
-                  styles.tabLabel,
-                  compact && styles.tabLabelCompact,
-                  { color: palette.accent },
-                  activeTab === key && styles.tabLabelActive,
-                ]}
-              >
-                {label}
-              </Text>
+              <View style={styles.tabContent}>
+                <AppIcon name={icon} color={activeTab === key ? palette.accentText : palette.accent} size={compact ? 16 : 18} />
+                <Text
+                  style={[
+                    styles.tabLabel,
+                    compact && styles.tabLabelCompact,
+                    { color: palette.accent },
+                    activeTab === key && styles.tabLabelActive,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </View>
             </Pressable>
           ))}
         </View>
@@ -415,6 +419,11 @@ const styles = StyleSheet.create({
     color: theme.colors.accentSoftText,
     ...theme.typography.control,
     fontWeight: "700",
+  },
+  tabContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
   },
   tabLabelCompact: {
     fontSize: 14,
