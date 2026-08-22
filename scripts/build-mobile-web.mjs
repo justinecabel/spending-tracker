@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,6 +27,10 @@ if (exportResult.status !== 0) {
 
 const outputPath = resolve(appDirectory, "dist", "build-info.json");
 await mkdir(dirname(outputPath), { recursive: true });
+const iconFontSource = appRequire.resolve("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf");
+const iconFontOutput = resolve(appDirectory, "dist", "assets", "material-community.ttf");
+await mkdir(dirname(iconFontOutput), { recursive: true });
+await copyFile(iconFontSource, iconFontOutput);
 await writeFile(
   outputPath,
   `${JSON.stringify({ id: buildId, createdAt: new Date().toISOString() })}\n`,

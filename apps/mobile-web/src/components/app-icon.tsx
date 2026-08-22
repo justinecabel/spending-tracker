@@ -1,5 +1,6 @@
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import type { ComponentProps } from "react";
+import * as Font from "expo-font";
+import { useEffect, useState, type ComponentProps } from "react";
 import { appearanceStore, getAppearanceProfileKey } from "../state/appearance";
 import { sessionStore } from "../state/session";
 
@@ -50,6 +51,36 @@ const iconByName: Record<AppIconName, ComponentProps<typeof MaterialCommunityIco
   notifications: "bell-outline",
 };
 
+const iconFontFamily = "material-community";
+const pagesBaseUrl = process.env.EXPO_PUBLIC_BASE_URL ?? "";
+const iconFontSource = pagesBaseUrl
+  ? `${pagesBaseUrl}/assets/material-community.ttf`
+  : require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf");
+let iconFontLoad: Promise<void> | null = null;
+
+function loadIconFont() {
+  iconFontLoad ??= Font.loadAsync({ [iconFontFamily]: iconFontSource });
+  return iconFontLoad;
+}
+
+function useIconFontReady() {
+  const [ready, setReady] = useState(() => Font.isLoaded(iconFontFamily));
+
+  useEffect(() => {
+    let active = true;
+    void loadIconFont().then(() => {
+      if (active) {
+        setReady(true);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return ready;
+}
+
 export function useShowIcons() {
   const activeProfile = sessionStore((state) => state.activeProfile);
   const userId = sessionStore((state) => state.user?.id);
@@ -60,8 +91,9 @@ export function useShowIcons() {
 
 export function AppIcon({ name, color, size = 18 }: { name: AppIconName; color: string; size?: number }) {
   const showIcons = useShowIcons();
+  const iconFontReady = useIconFontReady();
 
-  if (!showIcons) {
+  if (!showIcons || !iconFontReady) {
     return null;
   }
 
